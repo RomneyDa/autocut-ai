@@ -21,10 +21,10 @@ export default function VideoPreviewWithCuts({
 }: VideoPreviewWithCutsProps) {
   const [videoUrl, setVideoUrl] = useState<string>('');
   const [isPlaying, setIsPlaying] = useState(false);
-  const [isMuted, setIsMuted] = useState(true);
+  const [isMuted, setIsMuted] = useState(false);
   const [duration, setDuration] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
-  const [previewMode, setPreviewMode] = useState<'original' | 'processed'>('original');
+  const [previewMode, setPreviewMode] = useState<'original' | 'processed'>('processed');
   const videoRef = useRef<HTMLVideoElement>(null);
   
   // For processed mode, track the "virtual" time
@@ -146,26 +146,39 @@ export default function VideoPreviewWithCuts({
     }
   };
 
+  // Poll for cut skipping at high frequency
+  useEffect(() => {
+    if (!isPlaying || previewMode !== 'processed') return;
+
+    const interval = setInterval(() => {
+      const video = videoRef.current;
+      if (!video || video.paused) return;
+
+      const t = video.currentTime;
+      for (const cut of sortedCuts) {
+        if (t >= cut.startTime && t < cut.endTime) {
+          video.currentTime = cut.endTime;
+          return;
+        }
+      }
+    }, 30); // ~33fps polling
+
+    return () => clearInterval(interval);
+  }, [isPlaying, previewMode, sortedCuts]);
+
   const handleTimeUpdate = (e: React.SyntheticEvent<HTMLVideoElement>) => {
     const video = e.currentTarget;
     const actualTime = video.currentTime;
     setCurrentTime(actualTime);
 
+    // Also skip in timeupdate as fallback
     if (previewMode === 'processed') {
-      // Check if we're in a cut region and skip it
-      const currentCut = sortedCuts.find(cut => 
-        actualTime >= cut.startTime && actualTime < cut.endTime
-      );
-
-      if (currentCut) {
-        // Jump to the end of the cut with a small buffer for natural flow
-        const buffer = getBufferForCutType(currentCut.type);
-        video.currentTime = currentCut.endTime + buffer;
-        setCurrentTime(currentCut.endTime + buffer);
-        return;
+      for (const cut of sortedCuts) {
+        if (actualTime >= cut.startTime && actualTime < cut.endTime) {
+          video.currentTime = cut.endTime;
+          return;
+        }
       }
-
-      // Update virtual time
       setVirtualTime(actualToVirtualTime(actualTime));
     } else {
       setVirtualTime(actualTime);
@@ -217,39 +230,6 @@ export default function VideoPreviewWithCuts({
 
   return (
     <div className={`bg-white rounded-lg border border-gray-200 overflow-hidden ${className}`}>
-      {/* Preview Mode Toggle */}
-      {showProcessed && (
-        <div className="bg-gray-50 px-4 py-2 border-b border-gray-200">
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-medium text-gray-700">Video Preview</h3>
-            <div className="flex items-center space-x-2">
-              <button
-                onClick={() => setPreviewMode('original')}
-                className={`flex items-center space-x-1 px-3 py-1 rounded-md text-xs font-medium transition-colors ${
-                  previewMode === 'original'
-                    ? 'bg-blue-100 text-blue-700'
-                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                }`}
-              >
-                <Eye className="w-3 h-3" />
-                <span>Original</span>
-              </button>
-              <button
-                onClick={() => setPreviewMode('processed')}
-                className={`flex items-center space-x-1 px-3 py-1 rounded-md text-xs font-medium transition-colors ${
-                  previewMode === 'processed'
-                    ? 'bg-green-100 text-green-700'
-                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                }`}
-              >
-                <Scissors className="w-3 h-3" />
-                <span>Edited</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Video Player */}
       <div className="relative bg-black">
         <video
@@ -308,28 +288,28 @@ export default function VideoPreviewWithCuts({
               className="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer slider"
             />
             
-            {/* Cut markers (only show in original mode) */}
-            {previewMode === 'original' && (
-              <div className="absolute inset-0 pointer-events-none">
-                {cuts.map((cut, index) => {
-                  if (!selectedCuts.has(index) || !duration) return null;
-                  
-                  const startPercent = (cut.startTime / duration) * 100;
-                  const widthPercent = ((cut.endTime - cut.startTime) / duration) * 100;
-                  
-                  return (
-                    <div
-                      key={index}
-                      className="absolute top-0 h-2 bg-red-500 rounded opacity-70"
-                      style={{
-                        left: `${startPercent}%`,
-                        width: `${widthPercent}%`
-                      }}
-                    />
-                  );
-                })}
-              </div>
-            )}
+            {/* Cut markers */}
+            <div className="absolute inset-0 pointer-events-none">
+              {cuts.map((cut, index) => {
+                if (!selectedCuts.has(index) || !duration) return null;
+
+                const startPercent = (cut.startTime / duration) * 100;
+                const widthPercent = ((cut.endTime - cut.startTime) / duration) * 100;
+
+                return (
+                  <div
+                    key={index}
+                    className={`absolute top-0 h-2 rounded ${
+                      previewMode === 'processed' ? 'bg-red-500 opacity-50' : 'bg-red-500 opacity-70'
+                    }`}
+                    style={{
+                      left: `${startPercent}%`,
+                      width: `${Math.max(widthPercent, 0.3)}%`
+                    }}
+                  />
+                );
+              })}
+            </div>
           </div>
 
           {/* Controls */}
@@ -381,19 +361,51 @@ export default function VideoPreviewWithCuts({
         </div>
       </div>
 
-      {/* Cut Summary */}
-      {selectedCuts.size > 0 && (
-        <div className="bg-gray-50 px-4 py-2 border-t border-gray-200">
-          <div className="flex items-center justify-between text-xs">
-            <span className="text-gray-600">
-              {selectedCuts.size} cuts • {formatTime(cutDuration - selectedCutsArray.reduce((sum, cut) => sum + getBufferForCutType(cut.type), 0))} removed
-            </span>
-            <span className="text-green-600 font-medium">
-              Final duration: {formatTime(processedDuration)}
-            </span>
+      {/* Cut Summary + Mode Toggle */}
+      <div className="bg-gray-50 px-4 py-2 border-t border-gray-200">
+        <div className="flex items-center justify-between text-xs">
+          <div className="flex items-center gap-3">
+            {showProcessed && (
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => setPreviewMode('processed')}
+                  className={`cursor-pointer flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium transition-colors ${
+                    previewMode === 'processed'
+                      ? 'bg-green-100 text-green-700'
+                      : 'text-gray-500 hover:text-gray-700'
+                  }`}
+                  title="Preview with cuts skipped automatically"
+                >
+                  <Scissors className="w-3 h-3" />
+                  Edited
+                </button>
+                <button
+                  onClick={() => setPreviewMode('original')}
+                  className={`cursor-pointer flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium transition-colors ${
+                    previewMode === 'original'
+                      ? 'bg-blue-100 text-blue-700'
+                      : 'text-gray-500 hover:text-gray-700'
+                  }`}
+                  title="Play the full uncut video with cut markers on timeline"
+                >
+                  <Eye className="w-3 h-3" />
+                  Original
+                </button>
+              </div>
+            )}
+            {selectedCuts.size > 0 && (
+              <span className="text-gray-600">
+                {selectedCuts.size} cuts • {formatTime(cutDuration - selectedCutsArray.reduce((sum, cut) => sum + getBufferForCutType(cut.type), 0))} removed
+              </span>
+            )}
           </div>
+          {selectedCuts.size > 0 && (
+            <span className="text-green-600 font-medium">
+              Final: {formatTime(processedDuration)}
+            </span>
+          )}
         </div>
-      )}
+      </div>
 
       <style jsx>{`
         .slider::-webkit-slider-thumb {

@@ -18,11 +18,13 @@ interface AnalysisOptionsProps {
   onChange: (config: AnalysisConfig) => void;
 }
 
-// Token rates from Gemini docs (frames+transcript mode, no audio sent to Gemini)
+// Gemini token rates (frames+transcript mode)
 const TOKENS_PER_IMAGE_SMALL = 258;
 const TOKENS_PER_IMAGE_LOW = 66;
-// Transcript text tokens: ~1 token per word, ~2.5 words/sec of speech
-const TOKENS_PER_SEC_TRANSCRIPT = 3;
+const TOKENS_PER_SEC_TRANSCRIPT = 3; // ~1 token/word, ~2.5 words/sec
+
+// AssemblyAI pricing (per hour)
+const ASSEMBLY_PRICE_PER_HOUR = 0.15; // Universal-2 default
 
 function estimateOutputTokens(durationSec: number): number {
   return Math.ceil(200 + durationSec * 30);
@@ -40,12 +42,18 @@ function estimateTokens(config: AnalysisConfig, durationSec: number) {
 function estimateCost(
   inputTokens: number,
   outputTokens: number,
+  durationSec: number,
   model: GeminiModelInfo | null,
 ) {
   if (!model) return null;
-  const inputCost = (inputTokens / 1_000_000) * model.inputPricePerM;
-  const outputCost = (outputTokens / 1_000_000) * model.outputPricePerM;
-  return { input: inputCost, output: outputCost, total: inputCost + outputCost };
+  const geminiInputCost = (inputTokens / 1_000_000) * model.inputPricePerM;
+  const geminiOutputCost = (outputTokens / 1_000_000) * model.outputPricePerM;
+  const assemblyCost = (durationSec / 3600) * ASSEMBLY_PRICE_PER_HOUR;
+  return {
+    gemini: geminiInputCost + geminiOutputCost,
+    assembly: assemblyCost,
+    total: geminiInputCost + geminiOutputCost + assemblyCost,
+  };
 }
 
 function formatTokens(n: number): string {
@@ -107,8 +115,8 @@ export default function AnalysisOptions({ videoDuration, videoSizeMB, config, on
   );
 
   const cost = useMemo(
-    () => estimateCost(totalInput, outputTokens, selectedModel),
-    [totalInput, outputTokens, selectedModel]
+    () => estimateCost(totalInput, outputTokens, videoDuration, selectedModel),
+    [totalInput, outputTokens, videoDuration, selectedModel]
   );
 
   const handleFpsChange = (value: string) => {
@@ -220,16 +228,38 @@ export default function AnalysisOptions({ videoDuration, videoSizeMB, config, on
       </div>
 
       </>}
+    </div>
+  );
+}
 
-      {/* Token + cost estimate */}
-      <div className="flex items-center justify-between px-3 py-2 bg-muted rounded-md text-xs text-muted-foreground">
-        <span>
-          Est. ~{formatTokens(totalInput)} in ({frameCount} frames + transcript) + ~{formatTokens(outputTokens)} out
-        </span>
+export function CostEstimate({ videoDuration, config }: { videoDuration: number; config: AnalysisConfig }) {
+  const [models, setModels] = useState<GeminiModelInfo[]>([]);
+
+  useEffect(() => {
+    const key = getStoredGeminiKey();
+    if (!key) return;
+    fetchAvailableModels(key).then(setModels);
+  }, []);
+
+  const selectedModel = models.find(m => m.id === config.modelId) || null;
+  const { totalInput, outputTokens } = useMemo(() => estimateTokens(config, videoDuration), [config, videoDuration]);
+  const cost = useMemo(() => estimateCost(totalInput, outputTokens, videoDuration, selectedModel), [totalInput, outputTokens, videoDuration, selectedModel]);
+
+  return (
+    <div className="px-3 py-2 bg-muted rounded-md text-xs text-muted-foreground space-y-0.5">
+      <div className="flex items-center gap-1.5">
+        <span>Estimated cost:</span>
         <span className="font-medium text-foreground">
           {cost !== null ? formatCost(cost.total) : '—'}
         </span>
       </div>
+      {cost !== null && (
+        <div className="text-[10px] text-muted-foreground/70">
+          Gemini: ~{formatTokens(totalInput)} tokens in + ~{formatTokens(outputTokens)} tokens out = {formatCost(cost.gemini)}
+          {' · '}
+          AssemblyAI: {Math.round(videoDuration)}s transcription = {formatCost(cost.assembly)}
+        </div>
+      )}
     </div>
   );
 }

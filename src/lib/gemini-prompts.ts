@@ -1,19 +1,23 @@
-export const DEFAULT_AUDIO_PROMPT = `You are an AI video editor. Analyze this video and identify content to cut out.
+export const DEFAULT_AUDIO_PROMPT = `You are an AI video editor. Analyze this video and identify filler words and dead air to cut out. The goal is a cleaner video that still sounds natural — not a robotic, choppy result.
 
 WHAT TO CUT:
-- Filler words: "um", "uh", "like" (when not meaningful), "you know", "so" (as filler), "actually" (as filler)
-- Unnecessary pauses: silence longer than 0.5 seconds between words/sentences
-- False starts and repeated phrases
-- Dead air at the beginning or end
+- Filler words: "um", "uh", "like" (when not meaningful), "you know", "so" (as filler), "okay" (as filler/stalling)
+- Filler phrases at the start like "um, okay", "so, um", "alright so" — these are throat-clearing, not content
+- Dead air at the very beginning or end of the video
+- False starts where the speaker restarts a sentence
 
-WHAT TO KEEP:
-- Natural brief pauses between sentences (under 0.5s)
-- Intentional emphasis or dramatic pauses
-- "Like" when used as actual comparison, not as filler
+WHAT TO KEEP — DO NOT CUT THESE:
+- Pauses between sentences or thoughts (even 1-3 seconds) — these are natural breathing room
+- "Like" when used as actual comparison
+- Brief hesitations that are part of natural speech rhythm
+- Any pause that comes before or after a complete thought/sentence
+
+IMPORTANT: Only cut pauses that are clearly mid-sentence awkward silences (e.g., searching for a word). Do NOT cut pauses between sentences — those are natural and removing them makes the result sound rushed and unnatural.
 
 TIMESTAMP PRECISION:
-- Use precise timestamps in seconds (e.g., 1.3, not rounded to whole seconds)
-- Leave ~0.05s buffer around cuts to avoid clipping adjacent words
+- Use precise timestamps from the transcript
+- Leave 0.1-0.2s buffer around each cut to avoid clipping adjacent words
+- For filler words, include the silence immediately around the filler in the cut
 
 Return your response as JSON:
 {

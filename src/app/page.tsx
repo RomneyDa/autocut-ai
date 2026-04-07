@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import VideoUploader from '@/components/VideoUploader';
 import ProcessingStatus from '@/components/ProcessingStatus';
 import AnalysisResults from '@/components/AnalysisResults';
@@ -8,10 +8,15 @@ import TestVideoUpload from '@/components/TestVideoUpload';
 import DebugPanel from '@/components/DebugPanel';
 import APIKeyManager from '@/components/APIKeyManager';
 import PromptEditor from '@/components/PromptEditor';
-import AnalysisOptions, { type AnalysisConfig, getStoredConfig } from '@/components/AnalysisOptions';
+import ProjectHistory from '@/components/ProjectHistory';
+import AnalysisOptions, { CostEstimate, type AnalysisConfig, getStoredConfig } from '@/components/AnalysisOptions';
 import { ProcessingStatus as ProcessingStatusType, AnalysisResult } from '@/lib/types';
 import { getStoredGeminiKey, getStoredAssemblyKey } from '@/lib/api-keys';
 import { analyzeVideoClientSide } from '@/lib/client-analyzer';
+import {
+  saveProject, loadProject, getActiveProjectId, setActiveProjectId, clearActiveProjectId,
+  type ProjectRecord,
+} from '@/lib/project-store';
 import { Sparkles, Settings, Github } from 'lucide-react';
 
 const isDev = process.env.NODE_ENV === 'development';
@@ -21,11 +26,76 @@ export default function Home() {
   const [userPrompt, setUserPrompt] = useState('');
   const [status, setStatus] = useState<ProcessingStatusType | null>(null);
   const [results, setResults] = useState<AnalysisResult | null>(null);
+  const [selectedCuts, setSelectedCuts] = useState<Set<number>>(new Set());
   const [debugData, setDebugData] = useState<unknown>(null);
   const [showTestMode, setShowTestMode] = useState(false);
   const [apisConnected, setApisConnected] = useState(false);
   const [analysisConfig, setAnalysisConfig] = useState<AnalysisConfig>(getStoredConfig);
   const [videoDuration, setVideoDuration] = useState(0);
+  const [restored, setRestored] = useState(false);
+  const [activeProjectId, setActiveId] = useState<number | null>(null);
+  const [projectRefreshKey, setProjectRefreshKey] = useState(0);
+  const saveTimer = useRef<ReturnType<typeof setTimeout>>(null);
+
+  // Restore active project on mount
+  useEffect(() => {
+    (async () => {
+      const id = getActiveProjectId();
+      if (id) {
+        const project = await loadProject(id);
+        if (project) {
+          restoreProject(project);
+        }
+      }
+      setRestored(true);
+    })();
+  }, []);
+
+  const restoreProject = (project: ProjectRecord) => {
+    setCurrentFile(project.videoFile);
+    setResults(project.results);
+    setUserPrompt(project.userPrompt);
+    setVideoDuration(project.videoDuration);
+    setSelectedCuts(new Set(project.selectedCuts));
+    setActiveId(project.id!);
+    setActiveProjectId(project.id!);
+    if (project.results) {
+      setStatus({ stage: 'complete', progress: 100, message: 'Analysis complete!' });
+    } else {
+      setStatus(null);
+    }
+    setDebugData(null);
+  };
+
+  // Debounced save to IDB
+  const persistProject = useCallback(() => {
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(async () => {
+      if (!currentFile) return;
+      const project: ProjectRecord = {
+        ...(activeProjectId ? { id: activeProjectId } : {}),
+        name: currentFile.name,
+        fileSize: currentFile.size,
+        videoDuration,
+        videoFile: currentFile,
+        results,
+        userPrompt,
+        selectedCuts: Array.from(selectedCuts),
+        createdAt: activeProjectId ? Date.now() : Date.now(), // will be overwritten on existing
+        updatedAt: Date.now(),
+      };
+
+      // Preserve createdAt for existing projects
+      if (activeProjectId) {
+        const existing = await loadProject(activeProjectId);
+        if (existing) project.createdAt = existing.createdAt;
+      }
+
+      const id = await saveProject(project);
+      setActiveId(id);
+      setProjectRefreshKey(k => k + 1);
+    }, 500);
+  }, [currentFile, results, userPrompt, videoDuration, selectedCuts, activeProjectId]);
 
   const videoPreviewUrl = useMemo(
     () => currentFile ? URL.createObjectURL(currentFile) : null,
@@ -35,6 +105,7 @@ export default function Home() {
   // Get video duration when file changes
   useEffect(() => {
     if (!videoPreviewUrl) { setVideoDuration(0); return; }
+    if (videoDuration > 0) return;
     const video = document.createElement('video');
     video.preload = 'metadata';
     video.onloadedmetadata = () => {
@@ -49,6 +120,10 @@ export default function Home() {
     setStatus(null);
     setResults(null);
     setDebugData(null);
+    setVideoDuration(0);
+    setSelectedCuts(new Set());
+    setActiveId(null);
+    clearActiveProjectId();
   };
 
   const handleAnalyze = async () => {
@@ -75,12 +150,37 @@ export default function Home() {
       );
 
       setDebugData(result);
-      setResults({
+      const analysisResult: AnalysisResult = {
         frames: [],
         transcript: result.transcript?.text || '',
         aiDescription: result.description,
         recommendedCuts: result.cuts,
-      });
+      };
+      setResults(analysisResult);
+
+      const allCuts = new Set(result.cuts.map((_, i) => i));
+      setSelectedCuts(allCuts);
+
+      // Save project
+      const project: ProjectRecord = {
+        ...(activeProjectId ? { id: activeProjectId } : {}),
+        name: currentFile.name,
+        fileSize: currentFile.size,
+        videoDuration,
+        videoFile: currentFile,
+        results: analysisResult,
+        userPrompt,
+        selectedCuts: Array.from(allCuts),
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      };
+      if (activeProjectId) {
+        const existing = await loadProject(activeProjectId);
+        if (existing) project.createdAt = existing.createdAt;
+      }
+      const id = await saveProject(project);
+      setActiveId(id);
+      setProjectRefreshKey(k => k + 1);
     } catch (error) {
       console.error('Analysis error:', error);
       setStatus({
@@ -89,6 +189,11 @@ export default function Home() {
         message: `Analysis failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
       });
     }
+  };
+
+  const handleSelectedCutsChange = (cuts: Set<number>) => {
+    setSelectedCuts(cuts);
+    persistProject();
   };
 
   const handlePayAndDownload = () => {
@@ -102,51 +207,71 @@ export default function Home() {
     setUserPrompt('');
     setDebugData(null);
     setVideoDuration(0);
+    setSelectedCuts(new Set());
+    setActiveId(null);
+    clearActiveProjectId();
+  };
+
+  const handleSelectProject = async (id: number) => {
+    const project = await loadProject(id);
+    if (project) restoreProject(project);
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 py-8 px-4">
-      <div className="max-w-6xl mx-auto">
+    <div className="min-h-screen bg-gray-50 py-8 px-4 flex flex-col">
+      <div className="max-w-6xl mx-auto w-full flex-1">
         {/* Header */}
-        <div className="text-center mb-8">
-          <div className="flex items-center justify-center mb-2">
-            <h1 className="text-4xl font-bold text-gray-900 flex items-center">
-              <Sparkles className="w-8 h-8 text-blue-600 mr-2" />
-              AutoCut AI
-            </h1>
-            <a
-              href="https://github.com/romneyda/autocut-ai"
-              target="_blank"
-              className="ml-3 text-gray-400 hover:text-gray-600 transition-colors"
-              title="View source on GitHub"
-            >
-              <Github className="w-6 h-6" />
-            </a>
+        <div className="text-center mb-8 relative">
+          <div className="absolute right-0 top-1 flex items-center gap-2">
             {isDev && (
               <button
                 onClick={() => setShowTestMode(!showTestMode)}
-                className="ml-4 p-2 text-gray-500 hover:text-gray-700"
+                className="text-gray-500 hover:text-gray-700 transition-colors"
                 title="Toggle test mode"
               >
                 <Settings className="w-5 h-5" />
               </button>
             )}
+            <a
+              href="https://github.com/romneyda/autocut-ai"
+              target="_blank"
+              className="text-gray-700 hover:text-gray-900 transition-colors"
+              title="View source on GitHub"
+            >
+              <Github className="w-5 h-5" />
+            </a>
+          </div>
+          <div className="flex items-center justify-center mb-2">
+            <h1 className="text-4xl font-bold text-gray-900 flex items-center">
+              <Sparkles className="w-8 h-8 text-blue-600 mr-2" />
+              AutoCut AI
+            </h1>
           </div>
           <p className="text-lg text-gray-600">
             AI-powered video editing that removes filler words and unnecessary content
           </p>
           <p className="text-xs text-gray-400 mt-2">
-            We don&apos;t store your data or keys.
+            Processing and API calls are all local/direct. We don&apos;t store your data or keys.
           </p>
         </div>
 
         {/* API Key Manager */}
-        <div className="max-w-2xl mx-auto mb-8">
-          <APIKeyManager onKeysChanged={setApisConnected} />
+        <div className="max-w-2xl mx-auto mb-4">
+          <APIKeyManager onKeysChanged={setApisConnected} forceCollapsed={!!status} />
+        </div>
+
+        {/* Project History */}
+        <div className="max-w-2xl mx-auto mb-4">
+          <ProjectHistory
+            activeProjectId={activeProjectId}
+            onSelect={handleSelectProject}
+            onNew={resetFlow}
+            refreshKey={projectRefreshKey}
+          />
         </div>
 
         {/* Prompt Editor */}
-        <div className="mb-6">
+        <div className="max-w-2xl mx-auto mb-6">
           <PromptEditor disabled={!!status && status.stage !== 'complete' && status.stage !== 'error'} />
         </div>
 
@@ -155,7 +280,7 @@ export default function Home() {
 
         {/* Main Content */}
         <div className="space-y-8">
-          {!currentFile && !status && (
+          {!currentFile && !status && restored && (
             <VideoUploader
               onVideoUpload={handleFileSelected}
               isProcessing={false}
@@ -207,12 +332,16 @@ export default function Home() {
                 />
               </div>
 
+              {videoDuration > 0 && (
+                <CostEstimate videoDuration={videoDuration} config={analysisConfig} />
+              )}
+
               <button
                 onClick={handleAnalyze}
                 disabled={!apisConnected}
                 className="cursor-pointer w-full py-2.5 text-sm font-medium bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {apisConnected ? 'AutoCut' : 'Enter API key to analyze'}
+                {apisConnected ? 'AutoCut' : 'Enter API keys to analyze'}
               </button>
             </div>
           )}
@@ -224,22 +353,14 @@ export default function Home() {
 
           {/* Results */}
           {!!results && status?.stage === 'complete' ? (
-            <>
-              <AnalysisResults
-                results={results}
-                onPayAndDownload={handlePayAndDownload}
-                videoFile={currentFile || undefined}
-              />
-
-              <div className="text-center">
-                <button
-                  onClick={resetFlow}
-                  className="text-blue-600 hover:text-blue-800 underline text-sm"
-                >
-                  Upload Another Video
-                </button>
-              </div>
-            </>
+            <AnalysisResults
+              results={results}
+              selectedCuts={selectedCuts}
+              onSelectedCutsChange={handleSelectedCutsChange}
+              onPayAndDownload={handlePayAndDownload}
+              onReset={resetFlow}
+              videoFile={currentFile || undefined}
+            />
           ) : null}
 
           {/* Error State */}

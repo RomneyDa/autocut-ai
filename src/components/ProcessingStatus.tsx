@@ -59,16 +59,14 @@ export default function ProcessingStatus({ status }: ProcessingStatusProps) {
         </div>
       </div>
 
-      <div className="w-full bg-gray-200 rounded-full h-2">
-        <div
-          className={`h-2 rounded-full transition-all duration-300 ${getProgressColor()}`}
-          style={{ width: `${status.progress}%` }}
-        />
-      </div>
-
-      <div className="flex justify-between text-xs text-gray-500 mt-2">
-        <span>Progress</span>
-        <span>{Math.round(status.progress)}%</span>
+      <div className="flex items-center gap-2">
+        <div className="flex-1 bg-gray-200 rounded-full h-2">
+          <div
+            className={`h-2 rounded-full transition-all duration-300 ${getProgressColor()}`}
+            style={{ width: `${status.progress}%` }}
+          />
+        </div>
+        <span className="text-xs text-gray-500 w-8 text-right">{Math.round(status.progress)}%</span>
       </div>
     </div>
   );

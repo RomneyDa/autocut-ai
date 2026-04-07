@@ -2,21 +2,25 @@
 
 import { useState } from 'react';
 import { AnalysisResult, CutRecommendation } from '@/lib/types';
-import { Scissors, Clock, Volume2, FileText, Download, Play, Eye, Info } from 'lucide-react';
+import { Scissors, Clock, Download } from 'lucide-react';
 import VideoPreviewWithCuts from './VideoPreviewWithCuts';
 
 interface AnalysisResultsProps {
   results: AnalysisResult;
+  selectedCuts?: Set<number>;
+  onSelectedCutsChange?: (cuts: Set<number>) => void;
   onPayAndDownload: () => void;
+  onReset?: () => void;
   videoFile?: File;
 }
 
-export default function AnalysisResults({ results, onPayAndDownload, videoFile }: AnalysisResultsProps) {
-  const [selectedCuts, setSelectedCuts] = useState<Set<number>>(
-    new Set(results.recommendedCuts.map((_, index) => index))
+export default function AnalysisResults({ results, selectedCuts: selectedCutsProp, onSelectedCutsChange, onPayAndDownload, onReset, videoFile }: AnalysisResultsProps) {
+  const [internalSelectedCuts, setInternalSelectedCuts] = useState<Set<number>>(
+    () => selectedCutsProp ?? new Set(results.recommendedCuts.map((_, i) => i))
   );
+
+  const selectedCuts = selectedCutsProp ?? internalSelectedCuts;
   const [isDownloading, setIsDownloading] = useState(false);
-  const [showVideoPreview, setShowVideoPreview] = useState(true);
 
   const toggleCut = (index: number) => {
     const newSelected = new Set(selectedCuts);
@@ -25,7 +29,11 @@ export default function AnalysisResults({ results, onPayAndDownload, videoFile }
     } else {
       newSelected.add(index);
     }
-    setSelectedCuts(newSelected);
+    if (onSelectedCutsChange) {
+      onSelectedCutsChange(newSelected);
+    } else {
+      setInternalSelectedCuts(newSelected);
+    }
   };
 
   const formatTime = (seconds: number) => {
@@ -133,90 +141,35 @@ export default function AnalysisResults({ results, onPayAndDownload, videoFile }
   return (
     <>
       <div className="w-full max-w-6xl mx-auto space-y-6">
-        {/* Video Preview */}
-        {videoFile && showVideoPreview && (
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-            <div className="flex items-center justify-between p-4 border-b border-gray-200">
-              <h2 className="text-xl font-semibold text-gray-900 flex items-center">
-                <Play className="w-5 h-5 mr-2" />
-                Video Preview
-              </h2>
-              <button
-                onClick={() => setShowVideoPreview(!showVideoPreview)}
-                className="text-gray-500 hover:text-gray-700"
-              >
-                <Eye className="w-5 h-5" />
-              </button>
-            </div>
-            <div className="p-4">
-              <VideoPreviewWithCuts
-                file={videoFile}
-                cuts={results.recommendedCuts}
-                selectedCuts={selectedCuts}
-                showProcessed={true}
-              />
-              <div className="mt-3 text-sm text-gray-600">
-                <p><strong>How to use:</strong></p>
-                <ul className="mt-1 space-y-1 text-xs">
-                  <li>• <strong>Original mode:</strong> Play the full video with timeline markers showing cuts</li>
-                  <li>• <strong>Edited mode:</strong> Automatically skips all cut sections for a seamless preview</li>
-                  <li>• <strong>Smart buffering:</strong> Cuts include small buffers for natural speech flow</li>
-                  <li>• <strong>Timeline:</strong> Click anywhere to jump to that point in the video</li>
-                </ul>
-              </div>
-              
-              {/* Buffer Info */}
-              <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                <div className="flex items-start space-x-2">
-                  <Info className="w-4 h-4 text-blue-600 mt-0.5 flex-shrink-0" />
-                  <div className="text-xs text-blue-700">
-                    <strong>Natural Cut Buffering:</strong> We automatically add small time buffers after cuts to ensure smooth, natural-sounding transitions. Filler words get 0.15s, silence gets 0.05s, and repetitions get 0.2s buffer time.
-                  </div>
-                </div>
-              </div>
-            </div>
+        {/* Gemini's Description */}
+        {results.aiDescription && (
+          <div className="text-sm text-gray-600">
+            <span className="font-medium text-gray-700">Gemini&apos;s description: </span>
+            {results.aiDescription}
           </div>
         )}
 
-        {/* Summary Card */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-          <h2 className="text-xl font-semibold text-gray-900 mb-4 flex items-center">
-            <FileText className="w-5 h-5 mr-2" />
-            Analysis Summary
-          </h2>
-          
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-            <div className="text-center p-4 bg-gray-50 rounded-lg">
-              <div className="text-2xl font-bold text-blue-600">{results.recommendedCuts.length}</div>
-              <div className="text-sm text-gray-600">Recommended Cuts</div>
-            </div>
-            <div className="text-center p-4 bg-gray-50 rounded-lg">
-              <div className="text-2xl font-bold text-green-600">
-                {formatTime(totalCutDuration)}
-              </div>
-              <div className="text-sm text-gray-600">Time to Remove</div>
-            </div>
-            <div className="text-center p-4 bg-gray-50 rounded-lg">
-              <div className="text-2xl font-bold text-purple-600">{selectedCuts.size}</div>
-              <div className="text-sm text-gray-600">Selected Cuts</div>
-            </div>
+        {/* Video Preview */}
+        {videoFile && (
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden p-4">
+            <VideoPreviewWithCuts
+              file={videoFile}
+              cuts={results.recommendedCuts}
+              selectedCuts={selectedCuts}
+              showProcessed={true}
+            />
           </div>
+        )}
 
-          <div className="prose max-w-none">
-            <h3 className="text-lg font-medium text-gray-900 mb-2">Video Description</h3>
-            <p className="text-gray-700">{results.aiDescription}</p>
-          </div>
-        </div>
-
-        {/* Recommended Cuts */}
+        {/* Cuts */}
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
           <h2 className="text-xl font-semibold text-gray-900 mb-4 flex items-center">
             <Scissors className="w-5 h-5 mr-2" />
-            Recommended Cuts
+            Cuts
           </h2>
 
           <div className="mb-4 text-sm text-gray-600">
-            Click on cuts to toggle them on/off. Preview the changes in the video player above.
+            Click on cuts to toggle them on/off.
           </div>
 
           <div className="space-y-3">
@@ -266,29 +219,27 @@ export default function AnalysisResults({ results, onPayAndDownload, videoFile }
           </div>
         </div>
 
-        {/* Download Section */}
-        <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg border border-blue-200 p-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <h3 className="text-lg font-semibold text-gray-900 mb-1">
-                Ready to download your edited video?
-              </h3>
-              <p className="text-sm text-gray-600">
-                {selectedCuts.size} cuts selected • {formatTime(totalCutDuration)} will be removed
-              </p>
-              {videoFile && (
-                <p className="text-xs text-gray-500 mt-1">
-                  Preview includes natural buffering for smooth transitions
-                </p>
-              )}
-            </div>
+        {/* Download / Reset */}
+        <div className="flex items-center justify-between bg-gray-50 rounded-lg border border-gray-200 px-4 py-3">
+          <span className="text-sm text-gray-600">
+            {selectedCuts.size} cuts • {formatTime(totalCutDuration)} removed
+          </span>
+          <div className="flex items-center gap-3">
+            {onReset && (
+              <button
+                onClick={onReset}
+                className="cursor-pointer text-sm text-gray-500 hover:text-gray-700 underline"
+              >
+                New video
+              </button>
+            )}
             <button
               onClick={handlePaymentSuccess}
               disabled={isDownloading}
-              className="cursor-pointer flex items-center space-x-2 bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-medium transition-colors disabled:opacity-50"
+              className="cursor-pointer flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md text-sm font-medium transition-colors disabled:opacity-50"
             >
               <Download className="w-4 h-4" />
-              <span>{isDownloading ? 'Processing...' : 'Download'}</span>
+              {isDownloading ? 'Processing...' : 'Download'}
             </button>
           </div>
         </div>

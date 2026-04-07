@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { CheckCircle, XCircle, Loader2, Pencil, Zap, Trash2, ExternalLink } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { toast } from 'sonner';
 
 interface APIKeyInputProps {
   label: string;
@@ -36,7 +37,6 @@ export default function APIKeyInput({
   const [apiKey, setApiKey] = useState('');
   const [saved, setSaved] = useState(false);
   const [testStatus, setTestStatus] = useState<TestStatus>('idle');
-  const [testError, setTestError] = useState('');
 
   useEffect(() => {
     if (storedKey) {
@@ -54,7 +54,6 @@ export default function APIKeyInput({
   const handleEdit = () => {
     setSaved(false);
     setTestStatus('idle');
-    setTestError('');
   };
 
   const handleRemove = () => {
@@ -62,20 +61,23 @@ export default function APIKeyInput({
     setApiKey('');
     setSaved(false);
     setTestStatus('idle');
-    setTestError('');
   };
 
   const handleTest = async () => {
     if (!onTest) return;
     setTestStatus('testing');
-    setTestError('');
     try {
       const ok = await onTest(apiKey);
-      setTestStatus(ok ? 'passed' : 'failed');
-      if (!ok) setTestError('Key rejected by API');
+      if (ok) {
+        setTestStatus('passed');
+        toast.success(`${label} connected`);
+      } else {
+        setTestStatus('failed');
+        toast.error('Key rejected by API');
+      }
     } catch (e) {
       setTestStatus('failed');
-      setTestError(e instanceof Error ? e.message : 'Test failed');
+      toast.error(e instanceof Error ? e.message : 'Test failed');
     }
   };
 
@@ -138,12 +140,6 @@ export default function APIKeyInput({
 
       {!saved && apiKey && !validFormat && (
         <p className="text-xs text-red-400">{invalidMessage}</p>
-      )}
-      {testStatus === 'passed' && (
-        <p className="text-xs text-green-600">Connected</p>
-      )}
-      {testStatus === 'failed' && (
-        <p className="text-xs text-red-500">{testError}</p>
       )}
     </div>
   );
