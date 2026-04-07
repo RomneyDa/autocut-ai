@@ -144,7 +144,7 @@ export default function APIKeyManager({ onKeysChanged }: APIKeyManagerProps) {
       )}
 
       <p className="text-xs text-gray-500 text-center">
-        Key is stored in your browser only — never saved on our server.
+        Key is stored in your browser only — never saved on the server.
       </p>
     </div>
   );
