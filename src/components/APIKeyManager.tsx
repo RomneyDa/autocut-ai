@@ -138,7 +138,7 @@ export default function APIKeyManager({ onKeysChanged }: APIKeyManagerProps) {
             <p className="text-xs text-red-500 text-center">{testError}</p>
           )}
           <p className="text-xs text-gray-400 text-center">
-            Sends a short text message to verify your key works.
+            Sends a short text message to Gemini to verify your key works. Uses a few tokens.
           </p>
         </div>
       )}
