@@ -41,7 +41,10 @@ export default function APIKeyManager({ onKeysChanged }: APIKeyManagerProps) {
       setStatus(valid ? 'valid' : 'invalid');
       onKeysChanged(valid);
 
-      if (valid) setEditing(false);
+      if (valid) {
+        setStoredKey(key);
+        setEditing(false);
+      }
     } catch {
       setStatus('invalid');
       onKeysChanged(false);
@@ -49,7 +52,6 @@ export default function APIKeyManager({ onKeysChanged }: APIKeyManagerProps) {
   };
 
   const handleSave = () => {
-    setStoredKey(apiKey);
     if (apiKey) validateKey(apiKey);
   };
 
@@ -112,7 +114,7 @@ export default function APIKeyManager({ onKeysChanged }: APIKeyManagerProps) {
         disabled={!apiKey}
         className="w-full px-3 py-1.5 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
       >
-        Save & Validate
+        Validate & Save
       </button>
 
       <p className="text-xs text-gray-500 text-center">
