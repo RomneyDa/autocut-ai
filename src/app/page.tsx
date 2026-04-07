@@ -6,9 +6,12 @@ import ProcessingStatus from '@/components/ProcessingStatus';
 import AnalysisResults from '@/components/AnalysisResults';
 import TestVideoUpload from '@/components/TestVideoUpload';
 import DebugPanel from '@/components/DebugPanel';
-import APIStatus from '@/components/APIStatus';
+import APIKeyManager from '@/components/APIKeyManager';
 import { ProcessingStatus as ProcessingStatusType, AnalysisResult } from '@/lib/types';
-import { Sparkles, Settings, Info } from 'lucide-react';
+import { apiHeaders } from '@/lib/api-keys';
+import { Sparkles, Settings } from 'lucide-react';
+
+const isDev = process.env.NODE_ENV === 'development';
 
 export default function Home() {
   const [currentFile, setCurrentFile] = useState<File | null>(null);
@@ -17,22 +20,19 @@ export default function Home() {
   const [results, setResults] = useState<AnalysisResult | null>(null);
   const [debugData, setDebugData] = useState<unknown>(null);
   const [showTestMode, setShowTestMode] = useState(false);
-  const [showAPIStatus, setShowAPIStatus] = useState(true);
   const [apisConnected, setApisConnected] = useState(false);
 
   const handleVideoUpload = async (file: File) => {
     setCurrentFile(file);
     setResults(null);
     setDebugData(null);
-    
-    // Create FormData
+
     const formData = new FormData();
     formData.append('video', file);
     if (userPrompt.trim()) {
       formData.append('prompt', userPrompt);
     }
 
-    // Set initial status
     setStatus({
       stage: 'uploading',
       progress: 0,
@@ -40,21 +40,20 @@ export default function Home() {
     });
 
     try {
-      // Update status during processing
       setStatus({
         stage: 'extracting',
         progress: 20,
         message: 'Extracting frames and audio from video...'
       });
 
-      // Make API request
       const response = await fetch(`${process.env.NEXT_PUBLIC_BASE_PATH || ''}/api/analyze`, {
         method: 'POST',
+        headers: apiHeaders(),
         body: formData
       });
 
       const data = await response.json();
-      setDebugData(data); // Store for debugging
+      setDebugData(data);
 
       if (!response.ok) {
         throw new Error(data.error || 'Analysis failed');
@@ -79,9 +78,8 @@ export default function Home() {
           message: 'Analysis complete! Review your cuts below.'
         });
 
-        // Convert API response to AnalysisResult format
         setResults({
-          frames: [], // We don't need to store all frames in UI
+          frames: [],
           transcript: data.data.fullTranscript || [],
           aiDescription: data.data.description,
           recommendedCuts: data.data.recommendedCuts || []
@@ -122,59 +120,33 @@ export default function Home() {
               <Sparkles className="w-8 h-8 text-blue-600 mr-2" />
               AutoCut.AI
             </h1>
-            <div className="ml-4 flex space-x-2">
-              <button
-                onClick={() => setShowAPIStatus(!showAPIStatus)}
-                className="p-2 text-gray-500 hover:text-gray-700"
-                title="Toggle API status"
-              >
-                <Info className="w-5 h-5" />
-              </button>
+            {isDev && (
               <button
                 onClick={() => setShowTestMode(!showTestMode)}
-                className="p-2 text-gray-500 hover:text-gray-700"
+                className="ml-4 p-2 text-gray-500 hover:text-gray-700"
                 title="Toggle test mode"
               >
                 <Settings className="w-5 h-5" />
               </button>
-            </div>
+            )}
           </div>
           <p className="text-lg text-gray-600">
             AI-powered video editing that removes filler words and unnecessary content
           </p>
         </div>
 
-        {/* API Status */}
-        {showAPIStatus && (
-          <div className="max-w-2xl mx-auto mb-8">
-            <APIStatus onStatusChecked={setApisConnected} />
-          </div>
-        )}
+        {/* API Key Manager */}
+        <div className="max-w-2xl mx-auto mb-8">
+          <APIKeyManager onKeysChanged={setApisConnected} />
+        </div>
 
-        {/* Warning if APIs not connected */}
-        {!apisConnected && (
-          <div className="max-w-2xl mx-auto mb-8 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
-            <div className="flex items-start space-x-2">
-              <Info className="w-5 h-5 text-yellow-600 mt-0.5 flex-shrink-0" />
-              <div>
-                <h3 className="font-medium text-yellow-800">Setup Required</h3>
-                <p className="text-sm text-yellow-700 mt-1">
-                  Please add your API keys to <code className="bg-yellow-100 px-1 rounded">.env.local</code> to use the video analysis features.
-                  Check the README for setup instructions.
-                </p>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Test Mode */}
-        {showTestMode && <TestVideoUpload />}
+        {/* Test Mode (dev only) */}
+        {isDev && showTestMode && <TestVideoUpload />}
 
         {/* Main Content */}
         <div className="space-y-8">
           {!currentFile && !status && (
             <>
-              {/* User Prompt Input */}
               <div className="max-w-2xl mx-auto">
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Additional Instructions (Optional)
@@ -188,7 +160,6 @@ export default function Home() {
                 />
               </div>
 
-              {/* Video Uploader */}
               <VideoUploader
                 onVideoUpload={handleVideoUpload}
                 isProcessing={false}
@@ -210,7 +181,6 @@ export default function Home() {
                 videoFile={currentFile || undefined}
               />
 
-              {/* Reset Button */}
               <div className="text-center">
                 <button
                   onClick={resetFlow}
@@ -234,8 +204,8 @@ export default function Home() {
             </div>
           )}
 
-          {/* Debug Panel */}
-          {debugData != null ? (
+          {/* Debug Panel (dev only) */}
+          {isDev && debugData != null ? (
             <DebugPanel
               data={debugData}
               title="API Response Debug"

@@ -2,20 +2,15 @@ import { NextRequest, NextResponse } from 'next/server';
 import { GeminiClient } from '@/lib/gemini-client';
 import { AssemblyClient } from '@/lib/assembly-client';
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   const results = {
     gemini: { status: 'unknown', error: null as string | null },
     assembly: { status: 'unknown', error: null as string | null },
-    environment: {
-      hasGeminiKey: !!process.env.GEMINI_API_KEY,
-      hasAssemblyKey: !!process.env.ASSEMBLY_API_KEY,
-      nodeEnv: process.env.NODE_ENV
-    }
   };
 
   // Test Gemini API
   try {
-    const geminiApiKey = process.env.GEMINI_API_KEY;
+    const geminiApiKey = request.headers.get('x-gemini-api-key') || process.env.GEMINI_API_KEY;
     if (geminiApiKey) {
       const geminiClient = new GeminiClient(geminiApiKey);
       // Simple test - analyze a basic prompt
@@ -35,7 +30,7 @@ export async function GET() {
 
   // Test AssemblyAI API
   try {
-    const assemblyApiKey = process.env.ASSEMBLY_API_KEY;
+    const assemblyApiKey = request.headers.get('x-assembly-api-key') || process.env.ASSEMBLY_API_KEY;
     if (assemblyApiKey) {
       const assemblyClient = new AssemblyClient(assemblyApiKey);
       // Create a minimal WAV file (44 byte header + 1000 bytes of silent audio)

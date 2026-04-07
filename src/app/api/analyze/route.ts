@@ -14,14 +14,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'No video file provided' }, { status: 400 });
     }
 
-    // Check for required API keys
-    const geminiApiKey = process.env.GEMINI_API_KEY;
-    const assemblyApiKey = process.env.ASSEMBLY_API_KEY;
+    // Check for API keys: headers first, then env vars
+    const geminiApiKey = request.headers.get('x-gemini-api-key') || process.env.GEMINI_API_KEY;
+    const assemblyApiKey = request.headers.get('x-assembly-api-key') || process.env.ASSEMBLY_API_KEY;
 
     if (!geminiApiKey || !assemblyApiKey) {
       return NextResponse.json(
-        { error: 'Missing required API keys' },
-        { status: 500 }
+        { error: 'Missing API keys. Please enter your API keys above.' },
+        { status: 400 }
       );
     }
 
