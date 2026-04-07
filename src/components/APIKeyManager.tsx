@@ -1,8 +1,8 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Key, CheckCircle, XCircle, Loader2, Eye, EyeOff, Pencil } from 'lucide-react';
-import { getStoredKeys, setStoredKeys, apiHeaders } from '@/lib/api-keys';
+import { CheckCircle, XCircle, Loader2, Eye, EyeOff, Pencil } from 'lucide-react';
+import { getStoredKeys, setStoredKeys } from '@/lib/api-keys';
 
 interface APIKeyManagerProps {
   onKeysChanged: (connected: boolean) => void;
@@ -66,16 +66,16 @@ export default function APIKeyManager({ onKeysChanged }: APIKeyManagerProps) {
     }
   };
 
-  const statusIcon = (status: KeyStatus) => {
+  const statusIndicator = (status: KeyStatus) => {
     switch (status) {
       case 'checking':
-        return <Loader2 className="w-4 h-4 animate-spin text-gray-400" />;
+        return <Loader2 className="w-3.5 h-3.5 animate-spin text-gray-400" />;
       case 'valid':
-        return <CheckCircle className="w-4 h-4 text-green-500" />;
+        return <CheckCircle className="w-3.5 h-3.5 text-green-500" />;
       case 'invalid':
-        return <XCircle className="w-4 h-4 text-red-500" />;
+        return <XCircle className="w-3.5 h-3.5 text-red-500" />;
       default:
-        return <Key className="w-4 h-4 text-gray-400" />;
+        return null;
     }
   };
 
@@ -98,25 +98,20 @@ export default function APIKeyManager({ onKeysChanged }: APIKeyManagerProps) {
   }
 
   return (
-    <div className="max-w-md mx-auto p-4 bg-white border border-gray-200 rounded-lg space-y-4">
-      <div className="flex items-center gap-2">
-        <Key className="w-4 h-4 text-gray-600" />
-        <h3 className="text-sm font-medium text-gray-900">API Keys</h3>
-      </div>
-
-      <div className="space-y-3">
+    <div className="max-w-sm mx-auto space-y-3">
+      <div className="space-y-2">
         <div>
-          <label className="flex items-center gap-1.5 text-xs font-medium text-gray-600 mb-1">
-            {statusIcon(geminiStatus)}
+          <label className="flex items-center gap-1.5 text-xs font-medium text-gray-700 mb-1">
             Google Gemini
+            {statusIndicator(geminiStatus)}
           </label>
           <div className="relative">
             <input
               type={showGemini ? 'text' : 'password'}
               value={geminiKey}
               onChange={(e) => setGeminiKey(e.target.value)}
-              placeholder="Enter Gemini API key"
-              className="w-full px-3 py-1.5 pr-8 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder="Gemini API key"
+              className="w-full px-3 py-1.5 pr-8 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder:text-gray-400"
             />
             <button
               onClick={() => setShowGemini(!showGemini)}
@@ -128,17 +123,17 @@ export default function APIKeyManager({ onKeysChanged }: APIKeyManagerProps) {
         </div>
 
         <div>
-          <label className="flex items-center gap-1.5 text-xs font-medium text-gray-600 mb-1">
-            {statusIcon(assemblyStatus)}
+          <label className="flex items-center gap-1.5 text-xs font-medium text-gray-700 mb-1">
             AssemblyAI
+            {statusIndicator(assemblyStatus)}
           </label>
           <div className="relative">
             <input
               type={showAssembly ? 'text' : 'password'}
               value={assemblyKey}
               onChange={(e) => setAssemblyKey(e.target.value)}
-              placeholder="Enter AssemblyAI API key"
-              className="w-full px-3 py-1.5 pr-8 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder="AssemblyAI API key"
+              className="w-full px-3 py-1.5 pr-8 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder:text-gray-400"
             />
             <button
               onClick={() => setShowAssembly(!showAssembly)}
@@ -150,26 +145,16 @@ export default function APIKeyManager({ onKeysChanged }: APIKeyManagerProps) {
         </div>
       </div>
 
-      <div className="flex gap-2">
-        <button
-          onClick={handleSave}
-          disabled={!geminiKey || !assemblyKey}
-          className="flex-1 px-3 py-1.5 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          Save & Validate
-        </button>
-        {bothValid && (
-          <button
-            onClick={() => setEditing(false)}
-            className="px-3 py-1.5 text-sm border border-gray-300 rounded-md hover:bg-gray-50"
-          >
-            Cancel
-          </button>
-        )}
-      </div>
+      <button
+        onClick={handleSave}
+        disabled={!geminiKey || !assemblyKey}
+        className="w-full px-3 py-1.5 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+      >
+        Save & Validate
+      </button>
 
-      <p className="text-xs text-gray-500">
-        Keys are stored in your browser only and passed through to the APIs.
+      <p className="text-xs text-gray-500 text-center">
+        Keys are stored in your browser and passed through to the APIs.
       </p>
     </div>
   );

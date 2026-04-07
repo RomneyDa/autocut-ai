@@ -148,7 +148,7 @@ export default function Home() {
 
         {/* Main Content */}
         <div className="space-y-8">
-          {!currentFile && !status && (
+          {!currentFile && !status && apisConnected && (
             <>
               <div className="max-w-2xl mx-auto">
                 <label className="block text-sm font-medium text-gray-700 mb-2">
