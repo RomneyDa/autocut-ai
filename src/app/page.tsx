@@ -15,8 +15,9 @@ import { getStoredGeminiKey, getStoredAssemblyKey } from '@/lib/api-keys';
 import { analyzeVideoClientSide } from '@/lib/client-analyzer';
 import {
   saveProject, loadProject, getActiveProjectId, setActiveProjectId, clearActiveProjectId,
-  type ProjectRecord,
+  type ProjectRecord, type ProjectSettings,
 } from '@/lib/project-store';
+import { getStoredPrompts } from '@/lib/gemini-prompts';
 import { Sparkles, Settings, Github } from 'lucide-react';
 
 const isDev = process.env.NODE_ENV === 'development';
@@ -51,14 +52,27 @@ export default function Home() {
     })();
   }, []);
 
+  const getCurrentSettings = (): ProjectSettings => {
+    const prompts = getStoredPrompts();
+    return {
+      analysisConfig: analysisConfig,
+      audioPrompt: prompts.audio,
+      videoPrompt: prompts.video,
+      userInstructions: userPrompt,
+    };
+  };
+
   const restoreProject = (project: ProjectRecord) => {
     setCurrentFile(project.videoFile);
     setResults(project.results);
-    setUserPrompt(project.userPrompt);
+    setUserPrompt(project.settings?.userInstructions || '');
     setVideoDuration(project.videoDuration);
     setSelectedCuts(new Set(project.selectedCuts));
     setActiveId(project.id!);
     setActiveProjectId(project.id!);
+    if (project.settings?.analysisConfig) {
+      setAnalysisConfig(project.settings.analysisConfig);
+    }
     if (project.results) {
       setStatus({ stage: 'complete', progress: 100, message: 'Analysis complete!' });
     } else {
@@ -79,23 +93,26 @@ export default function Home() {
         videoDuration,
         videoFile: currentFile,
         results,
-        userPrompt,
+        settings: getCurrentSettings(),
         selectedCuts: Array.from(selectedCuts),
-        createdAt: activeProjectId ? Date.now() : Date.now(), // will be overwritten on existing
+        createdAt: Date.now(),
         updatedAt: Date.now(),
       };
 
-      // Preserve createdAt for existing projects
       if (activeProjectId) {
         const existing = await loadProject(activeProjectId);
-        if (existing) project.createdAt = existing.createdAt;
+        if (existing) {
+          project.createdAt = existing.createdAt;
+          // Keep original settings if we're just toggling cuts
+          if (!results && existing.settings) project.settings = existing.settings;
+        }
       }
 
       const id = await saveProject(project);
       setActiveId(id);
       setProjectRefreshKey(k => k + 1);
     }, 500);
-  }, [currentFile, results, userPrompt, videoDuration, selectedCuts, activeProjectId]);
+  }, [currentFile, results, userPrompt, videoDuration, selectedCuts, activeProjectId, analysisConfig]);
 
   const videoPreviewUrl = useMemo(
     () => currentFile ? URL.createObjectURL(currentFile) : null,
@@ -161,7 +178,7 @@ export default function Home() {
       const allCuts = new Set(result.cuts.map((_, i) => i));
       setSelectedCuts(allCuts);
 
-      // Save project
+      // Save project with settings used for this analysis
       const project: ProjectRecord = {
         ...(activeProjectId ? { id: activeProjectId } : {}),
         name: currentFile.name,
@@ -169,7 +186,7 @@ export default function Home() {
         videoDuration,
         videoFile: currentFile,
         results: analysisResult,
-        userPrompt,
+        settings: getCurrentSettings(),
         selectedCuts: Array.from(allCuts),
         createdAt: Date.now(),
         updatedAt: Date.now(),

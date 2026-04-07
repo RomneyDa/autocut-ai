@@ -88,6 +88,9 @@ export default function ProjectHistory({ activeProjectId, onSelect, onNew, refre
                 {p.cutCount > 0 && (
                   <span className="text-muted-foreground shrink-0">{p.cutCount} cuts</span>
                 )}
+                {p.modelId && (
+                  <span className="text-muted-foreground/50 shrink-0">{p.modelId.replace('gemini-', '')}</span>
+                )}
               </div>
               <div className="flex items-center gap-2 shrink-0 ml-2">
                 <span className="text-muted-foreground/70 flex items-center gap-1">

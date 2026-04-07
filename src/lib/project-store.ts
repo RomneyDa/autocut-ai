@@ -1,4 +1,12 @@
 import { AnalysisResult } from './types';
+import type { AnalysisConfig } from '@/components/AnalysisOptions';
+
+export interface ProjectSettings {
+  analysisConfig: AnalysisConfig;
+  audioPrompt: string;
+  videoPrompt: string;
+  userInstructions: string;
+}
 
 export interface ProjectRecord {
   id?: number;
@@ -7,7 +15,7 @@ export interface ProjectRecord {
   videoDuration: number;
   videoFile: File;
   results: AnalysisResult | null;
-  userPrompt: string;
+  settings: ProjectSettings | null;
   selectedCuts: number[];
   createdAt: number;
   updatedAt: number;
@@ -19,6 +27,7 @@ export interface ProjectSummary {
   fileSize: number;
   videoDuration: number;
   cutCount: number;
+  modelId?: string;
   createdAt: number;
   updatedAt: number;
 }
@@ -110,6 +119,7 @@ export async function listProjects(): Promise<ProjectSummary[]> {
           fileSize: val.fileSize,
           videoDuration: val.videoDuration,
           cutCount: val.results?.recommendedCuts?.length || 0,
+          modelId: val.settings?.analysisConfig?.modelId,
           createdAt: val.createdAt,
           updatedAt: val.updatedAt,
         });
