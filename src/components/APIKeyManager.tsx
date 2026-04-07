@@ -169,7 +169,7 @@ export default function APIKeyManager({ onKeysChanged }: APIKeyManagerProps) {
       </div>
 
       <p className="text-xs text-gray-500">
-        Keys are stored in your browser only and sent directly to the APIs.
+        Keys are stored in your browser only and passed through to the APIs.
       </p>
     </div>
   );
