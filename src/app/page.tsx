@@ -152,7 +152,7 @@ export default function Home() {
             <div className={!apisConnected ? 'opacity-50 pointer-events-none' : ''}>
               <VideoUploader
                 onVideoUpload={handleVideoUpload}
-                isProcessing={!apisConnected}
+                isProcessing={false}
               />
 
               <div className="max-w-2xl mx-auto mt-6">
