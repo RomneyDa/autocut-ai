@@ -16,10 +16,8 @@ import {
   type ProjectRecord, type ProjectSettings, type TranscriptData,
 } from '@/lib/project-store';
 import { getStoredPrompts } from '@/lib/gemini-prompts';
-import { Github, Scissors } from 'lucide-react';
+import { Github, Menu, X } from 'lucide-react';
 import Image from 'next/image';
-
-const isDev = process.env.NODE_ENV === 'development';
 
 export default function Home() {
   const [currentFile, setCurrentFile] = useState<File | null>(null);
@@ -37,16 +35,14 @@ export default function Home() {
   const abortRef = useRef<AbortController | null>(null);
   const [projectRefreshKey, setProjectRefreshKey] = useState(0);
   const saveTimer = useRef<ReturnType<typeof setTimeout>>(null);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
-  // Restore active project on mount
   useEffect(() => {
     (async () => {
       const id = getActiveProjectId();
       if (id) {
         const project = await loadProject(id);
-        if (project) {
-          restoreProject(project);
-        }
+        if (project) restoreProject(project);
       }
       setRestored(true);
     })();
@@ -55,7 +51,7 @@ export default function Home() {
   const getCurrentSettings = (): ProjectSettings => {
     const prompts = getStoredPrompts();
     return {
-      analysisConfig: analysisConfig,
+      analysisConfig,
       audioPrompt: prompts.audio,
       videoPrompt: prompts.video,
       userInstructions: userPrompt,
@@ -72,17 +68,11 @@ export default function Home() {
     setGeminiResponse(null);
     setActiveId(project.id!);
     setActiveProjectId(project.id!);
-    if (project.settings?.analysisConfig) {
-      setAnalysisConfig(project.settings.analysisConfig);
-    }
-    if (project.results) {
-      setStatus({ stage: 'complete', progress: 100, message: 'Analysis complete!' });
-    } else {
-      setStatus(null);
-    }
+    if (project.settings?.analysisConfig) setAnalysisConfig(project.settings.analysisConfig);
+    setStatus(project.results ? { stage: 'complete', progress: 100, message: 'Analysis complete!' } : null);
+    setSidebarOpen(false);
   };
 
-  // Debounced save to IDB
   const persistProject = useCallback(() => {
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(async () => {
@@ -100,7 +90,6 @@ export default function Home() {
         createdAt: Date.now(),
         updatedAt: Date.now(),
       };
-
       if (activeProjectId) {
         const existing = await loadProject(activeProjectId);
         if (existing) {
@@ -109,7 +98,6 @@ export default function Home() {
           if (!transcriptData && existing.transcript) project.transcript = existing.transcript;
         }
       }
-
       const id = await saveProject(project);
       setActiveId(id);
       setProjectRefreshKey(k => k + 1);
@@ -121,7 +109,6 @@ export default function Home() {
     [currentFile]
   );
 
-  // Get video duration when file changes
   useEffect(() => {
     if (!videoPreviewUrl) { setVideoDuration(0); return; }
     if (videoDuration > 0) return;
@@ -150,7 +137,6 @@ export default function Home() {
 
   const handleAnalyze = async () => {
     if (!currentFile) return;
-
     const geminiKey = getStoredGeminiKey();
     const assemblyKey = getStoredAssemblyKey();
     if (!geminiKey || !assemblyKey) return;
@@ -160,18 +146,13 @@ export default function Home() {
 
     try {
       const result = await analyzeVideoClientSide(
-        currentFile,
-        geminiKey,
-        assemblyKey,
-        analysisConfig,
+        currentFile, geminiKey, assemblyKey, analysisConfig,
         userPrompt.trim() || undefined,
-        (p) => {
-          setStatus({
-            stage: p.stage === 'loading' ? 'extracting' : p.stage as ProcessingStatusType['stage'],
-            progress: p.progress,
-            message: p.message,
-          });
-        },
+        (p) => setStatus({
+          stage: p.stage === 'loading' ? 'extracting' : p.stage as ProcessingStatusType['stage'],
+          progress: p.progress,
+          message: p.message,
+        }),
         controller.signal,
       );
 
@@ -194,19 +175,12 @@ export default function Home() {
       const allCuts = new Set(result.cuts.map((_, i) => i));
       setSelectedCuts(allCuts);
 
-      // Save project with settings used for this analysis
       const project: ProjectRecord = {
         ...(activeProjectId ? { id: activeProjectId } : {}),
-        name: currentFile.name,
-        fileSize: currentFile.size,
-        videoDuration,
-        videoFile: currentFile,
-        results: analysisResult,
-        transcript: tData,
-        settings: getCurrentSettings(),
-        selectedCuts: Array.from(allCuts),
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
+        name: currentFile.name, fileSize: currentFile.size, videoDuration,
+        videoFile: currentFile, results: analysisResult, transcript: tData,
+        settings: getCurrentSettings(), selectedCuts: Array.from(allCuts),
+        createdAt: Date.now(), updatedAt: Date.now(),
       };
       if (activeProjectId) {
         const existing = await loadProject(activeProjectId);
@@ -216,45 +190,22 @@ export default function Home() {
       setActiveId(id);
       setProjectRefreshKey(k => k + 1);
     } catch (error) {
-      if (error instanceof AnalysisCancelledError) {
-        setStatus(null);
-        return;
-      }
+      if (error instanceof AnalysisCancelledError) { setStatus(null); return; }
       console.error('Analysis error:', error);
-      setStatus({
-        stage: 'error',
-        progress: 0,
-        message: `Analysis failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
-      });
+      setStatus({ stage: 'error', progress: 0, message: `Analysis failed: ${error instanceof Error ? error.message : 'Unknown error'}` });
     } finally {
       abortRef.current = null;
     }
   };
 
-  const handleCancel = () => {
-    abortRef.current?.abort();
-  };
-
-  const handleSelectedCutsChange = (cuts: Set<number>) => {
-    setSelectedCuts(cuts);
-    persistProject();
-  };
-
-  const handlePayAndDownload = () => {
-    console.log('Video downloaded successfully!');
-  };
+  const handleCancel = () => abortRef.current?.abort();
+  const handleSelectedCutsChange = (cuts: Set<number>) => { setSelectedCuts(cuts); persistProject(); };
+  const handlePayAndDownload = () => console.log('Video downloaded successfully!');
 
   const resetFlow = () => {
-    setCurrentFile(null);
-    setStatus(null);
-    setResults(null);
-    setUserPrompt('');
-    setTranscriptData(null);
-    setGeminiResponse(null);
-    setVideoDuration(0);
-    setSelectedCuts(new Set());
-    setActiveId(null);
-    clearActiveProjectId();
+    setCurrentFile(null); setStatus(null); setResults(null); setUserPrompt('');
+    setTranscriptData(null); setGeminiResponse(null); setVideoDuration(0);
+    setSelectedCuts(new Set()); setActiveId(null); clearActiveProjectId();
   };
 
   const handleSelectProject = async (id: number) => {
@@ -262,83 +213,126 @@ export default function Home() {
     if (project) restoreProject(project);
   };
 
+  // Sidebar content (shared between mobile overlay and desktop sidebar)
+  const sidebarContent = (
+    <div className="space-y-6">
+      {/* Logo */}
+      <div className="flex items-center gap-2.5">
+        <Image src="/autocut/icon.svg" alt="AutoCut AI" width={28} height={28} />
+        <span className="text-lg font-bold text-gray-900">AutoCut AI</span>
+      </div>
+
+      {/* API Keys */}
+      <div>
+        <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">API Keys</h3>
+        <APIKeyManager onKeysChanged={setApisConnected} forceCollapsed={false} />
+      </div>
+
+      {/* Projects */}
+      <div>
+        <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Projects</h3>
+        <ProjectHistory
+          activeProjectId={activeProjectId}
+          onSelect={handleSelectProject}
+          onNew={resetFlow}
+          refreshKey={projectRefreshKey}
+          disabled={isAnalyzing}
+        />
+      </div>
+
+      {/* Prompt */}
+      <div>
+        <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Prompt</h3>
+        <PromptEditor disabled={isAnalyzing} />
+      </div>
+
+      {/* Links */}
+      <div className="pt-4 border-t border-gray-100 flex items-center gap-3 text-xs text-gray-400">
+        <a href="https://github.com/romneyda/autocut-ai" target="_blank" className="hover:text-gray-600 flex items-center gap-1">
+          <Github className="w-3.5 h-3.5" /> GitHub
+        </a>
+        <span>·</span>
+        <a href="https://buymeacoffee.com/dallin" target="_blank" className="hover:text-gray-600">
+          ☕ Buy me a coffee
+        </a>
+      </div>
+    </div>
+  );
+
   return (
-    <div className="min-h-screen bg-gray-50 py-8 px-4 flex flex-col">
-      <div className="max-w-6xl mx-auto w-full flex-1">
-        {/* Header */}
-        <div className="mb-8 relative">
-          <a
-            href="https://github.com/romneyda/autocut-ai"
-            target="_blank"
-            className="absolute right-0 top-2 text-gray-700 hover:text-gray-900 transition-colors"
-            title="View source on GitHub"
-          >
-            <Github className="w-5 h-5" />
-          </a>
-          <div className="flex items-center gap-3 mb-1">
-            <Image src="/autocut/icon.svg" alt="AutoCut AI" width={36} height={36} />
-            <h1 className="text-3xl font-bold text-gray-900">AutoCut AI</h1>
+    <div className="min-h-screen bg-gray-50 flex">
+      {/* Desktop sidebar */}
+      <aside className="hidden lg:block w-72 shrink-0 bg-white border-r border-gray-200 p-5 overflow-y-auto sticky top-0 h-screen">
+        {sidebarContent}
+      </aside>
+
+      {/* Mobile sidebar overlay */}
+      {sidebarOpen && (
+        <div className="fixed inset-0 z-50 lg:hidden">
+          <div className="absolute inset-0 bg-black/30" onClick={() => setSidebarOpen(false)} />
+          <aside className="absolute left-0 top-0 h-full w-72 bg-white p-5 overflow-y-auto shadow-xl">
+            <button onClick={() => setSidebarOpen(false)} className="absolute top-4 right-4 text-gray-400 hover:text-gray-600">
+              <X className="w-5 h-5" />
+            </button>
+            {sidebarContent}
+          </aside>
+        </div>
+      )}
+
+      {/* Main content */}
+      <main className="flex-1 min-w-0 flex flex-col">
+        {/* Mobile header */}
+        <div className="lg:hidden flex items-center justify-between px-4 py-3 bg-white border-b border-gray-200">
+          <div className="flex items-center gap-2">
+            <button onClick={() => setSidebarOpen(true)} className="text-gray-600 hover:text-gray-900">
+              <Menu className="w-5 h-5" />
+            </button>
+            <Image src="/autocut/icon.svg" alt="AutoCut AI" width={24} height={24} />
+            <span className="font-bold text-gray-900">AutoCut AI</span>
           </div>
-          <p className="text-gray-600">
+          <a href="https://github.com/romneyda/autocut-ai" target="_blank" className="text-gray-500 hover:text-gray-700">
+            <Github className="w-4 h-4" />
+          </a>
+        </div>
+
+        <div className="flex-1 p-4 sm:p-6 lg:p-8 max-w-5xl w-full mx-auto">
+          {/* Desktop header (no logo, just subtitle) */}
+          <p className="hidden lg:block text-sm text-gray-500 mb-6">
             Automatically cut out unnecessary filler words, silence, and other content from your video
           </p>
-        </div>
 
-        {/* Settings */}
-        <div className="max-w-2xl mx-auto mb-6 space-y-1">
-          <APIKeyManager onKeysChanged={setApisConnected} forceCollapsed={isAnalyzing} />
-          <ProjectHistory
-            activeProjectId={activeProjectId}
-            onSelect={handleSelectProject}
-            onNew={resetFlow}
-            refreshKey={projectRefreshKey}
-            disabled={isAnalyzing}
-          />
-          <PromptEditor disabled={!!status && status.stage !== 'complete' && status.stage !== 'error'} />
-        </div>
-
-        {/* Main Content */}
-        <div className="space-y-8">
+          {/* Uploader */}
           {!currentFile && !status && restored && (
-            <VideoUploader
-              onVideoUpload={handleFileSelected}
-              isProcessing={false}
-            />
+            <VideoUploader onVideoUpload={handleFileSelected} isProcessing={false} />
           )}
 
-          {/* Video preview (visible during pre-analyze AND processing) */}
+          {/* Video preview + controls */}
           {currentFile && !results && (
-            <div className="w-full max-w-2xl mx-auto space-y-4">
-              <div className="border-2 border-gray-300 rounded-lg p-3 h-64 flex flex-col">
+            <div className="space-y-4">
+              <div className="border border-gray-200 rounded-lg p-3 bg-white">
                 <video
                   src={videoPreviewUrl!}
                   controls
-                  className="w-full flex-1 min-h-0 rounded-md bg-black object-contain"
+                  className="w-full rounded-md bg-black object-contain"
+                  style={{ maxHeight: '360px' }}
                 />
-                <div className="flex items-center justify-between mt-2 flex-shrink-0">
-                  <div className="text-sm text-gray-600 truncate">
+                <div className="flex items-center justify-between mt-2">
+                  <div className="text-sm text-gray-500 truncate">
                     {currentFile.name} ({(currentFile.size / (1024 * 1024)).toFixed(1)} MB)
                     {videoDuration > 0 && <span className="ml-1">• {Math.round(videoDuration)}s</span>}
                   </div>
                   {!isAnalyzing && (
-                    <button
-                      onClick={resetFlow}
-                      className="cursor-pointer text-xs text-gray-500 hover:text-gray-700 underline ml-4 flex-shrink-0"
-                    >
+                    <button onClick={resetFlow} className="cursor-pointer text-xs text-gray-400 hover:text-gray-600 underline ml-4 shrink-0">
                       Change
                     </button>
                   )}
                 </div>
               </div>
 
-              {/* Processing Status */}
-              {isAnalyzing && (
-                <ProcessingStatus status={status!} onCancel={handleCancel} />
-              )}
+              {isAnalyzing && <ProcessingStatus status={status!} onCancel={handleCancel} />}
 
-              {/* Pre-analyze controls */}
               {!status && (
-                <>
+                <div className="space-y-3">
                   {videoDuration > 0 && (
                     <AnalysisOptions
                       videoDuration={videoDuration}
@@ -349,21 +343,17 @@ export default function Home() {
                   )}
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Additional Instructions (Optional)
-                    </label>
+                    <label className="block text-xs font-medium text-gray-700 mb-1">Additional Instructions (Optional)</label>
                     <textarea
                       value={userPrompt}
                       onChange={(e) => setUserPrompt(e.target.value)}
-                      placeholder="e.g., Be more aggressive with removing filler words, or keep natural pauses..."
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      placeholder="e.g., Be more aggressive with removing filler words..."
+                      className="w-full px-3 py-2 text-sm border border-gray-200 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                       rows={2}
                     />
                   </div>
 
-                  {videoDuration > 0 && (
-                    <CostEstimate videoDuration={videoDuration} config={analysisConfig} />
-                  )}
+                  {videoDuration > 0 && <CostEstimate videoDuration={videoDuration} config={analysisConfig} />}
 
                   <button
                     onClick={handleAnalyze}
@@ -372,19 +362,15 @@ export default function Home() {
                   >
                     {apisConnected ? 'AutoCut' : 'Enter API keys to analyze'}
                   </button>
-                </>
+                </div>
               )}
-
             </div>
           )}
 
-          {/* Error State */}
+          {/* Error */}
           {status?.stage === 'error' && (
-            <div className="text-center">
-              <button
-                onClick={() => setStatus(null)}
-                className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg font-medium transition-colors"
-              >
+            <div className="text-center py-8">
+              <button onClick={() => setStatus(null)} className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg text-sm font-medium">
                 Try Again
               </button>
             </div>
@@ -392,32 +378,23 @@ export default function Home() {
 
           {/* Results */}
           {!!results && status?.stage === 'complete' ? (
-            <>
-              <AnalysisResults
-                results={results}
-                selectedCuts={selectedCuts}
-                onSelectedCutsChange={handleSelectedCutsChange}
-                onPayAndDownload={handlePayAndDownload}
-                videoFile={currentFile || undefined}
-                transcriptFormatted={transcriptData?.formatted}
-                geminiRawResponse={geminiResponse}
-              />
-            </>
+            <AnalysisResults
+              results={results}
+              selectedCuts={selectedCuts}
+              onSelectedCutsChange={handleSelectedCutsChange}
+              onPayAndDownload={handlePayAndDownload}
+              videoFile={currentFile || undefined}
+              transcriptFormatted={transcriptData?.formatted}
+              geminiRawResponse={geminiResponse}
+            />
           ) : null}
         </div>
-      </div>
 
-      <footer className="text-center text-xs text-gray-400 py-8">
-        We don&apos;t view or store your API keys or data. &copy; {new Date().getFullYear()} Dallin Romney
-        {' · '}
-        <a
-          href="https://buymeacoffee.com/dallin"
-          target="_blank"
-          className="inline-flex items-center gap-1 text-gray-400 hover:text-gray-600 transition-colors"
-        >
-          ☕ Buy me a coffee
-        </a>
-      </footer>
+        {/* Footer */}
+        <footer className="text-center text-xs text-gray-400 py-4 border-t border-gray-100">
+          We don&apos;t view or store your API keys or data. &copy; {new Date().getFullYear()} Dallin Romney
+        </footer>
+      </main>
     </div>
   );
 }
