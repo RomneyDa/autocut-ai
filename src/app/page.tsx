@@ -23,6 +23,15 @@ export default function Home() {
   const [apisConnected, setApisConnected] = useState(false);
 
   const handleVideoUpload = async (file: File) => {
+    if (!apisConnected) {
+      setStatus({
+        stage: 'error',
+        progress: 0,
+        message: 'Please enter your Gemini API key first.'
+      });
+      return;
+    }
+
     setCurrentFile(file);
     setResults(null);
     setDebugData(null);
@@ -149,7 +158,7 @@ export default function Home() {
         {/* Main Content */}
         <div className="space-y-8">
           {!currentFile && !status && (
-            <div className={!apisConnected ? 'opacity-50 pointer-events-none' : ''}>
+            <>
               <VideoUploader
                 onVideoUpload={handleVideoUpload}
                 isProcessing={false}
@@ -165,10 +174,9 @@ export default function Home() {
                   placeholder="e.g., Please be more aggressive with removing filler words, or keep natural pauses..."
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   rows={3}
-                  disabled={!apisConnected}
                 />
               </div>
-            </div>
+            </>
           )}
 
           {/* Processing Status */}
