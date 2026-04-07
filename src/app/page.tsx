@@ -10,7 +10,7 @@ import APIKeyManager from '@/components/APIKeyManager';
 import { ProcessingStatus as ProcessingStatusType, AnalysisResult } from '@/lib/types';
 import { getStoredKey } from '@/lib/api-keys';
 import { analyzeVideoClientSide } from '@/lib/client-analyzer';
-import { Sparkles, Settings } from 'lucide-react';
+import { Sparkles, Settings, Github } from 'lucide-react';
 
 const isDev = process.env.NODE_ENV === 'development';
 
@@ -94,6 +94,14 @@ export default function Home() {
               <Sparkles className="w-8 h-8 text-blue-600 mr-2" />
               AutoCut AI
             </h1>
+            <a
+              href="https://github.com/romneyda/autocut-ai"
+              target="_blank"
+              className="ml-3 text-gray-400 hover:text-gray-600 transition-colors"
+              title="View source on GitHub"
+            >
+              <Github className="w-6 h-6" />
+            </a>
             {isDev && (
               <button
                 onClick={() => setShowTestMode(!showTestMode)}
@@ -219,6 +227,10 @@ export default function Home() {
           ) : null}
         </div>
       </div>
+
+      <footer className="text-center text-xs text-gray-400 py-8">
+        &copy; {new Date().getFullYear()} Dallin Romney
+      </footer>
     </div>
   );
 }

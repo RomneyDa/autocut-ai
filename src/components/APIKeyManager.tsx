@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { CheckCircle, XCircle, Loader2, Pencil, Zap, Trash2 } from 'lucide-react';
+import { CheckCircle, XCircle, Loader2, Pencil, Zap, Trash2, ExternalLink } from 'lucide-react';
 import { getStoredKey, setStoredKey, clearStoredKey } from '@/lib/api-keys';
 
 interface APIKeyManagerProps {
@@ -77,11 +77,18 @@ export default function APIKeyManager({ onKeysChanged }: APIKeyManagerProps) {
 
   return (
     <div className="max-w-lg mx-auto space-y-2">
-      <div>
-        <label className="block text-xs font-medium text-gray-700">
+      <div className="flex items-center justify-between">
+        <label className="text-xs font-medium text-gray-700">
           Google Gemini API Key
         </label>
-        <p className="text-xs text-gray-400">Browser-only storage. Passed through in headers, never stored on our server.</p>
+        <a
+          href="https://aistudio.google.com/api-keys"
+          target="_blank"
+          className="text-xs text-blue-500 hover:text-blue-700 flex items-center gap-1"
+        >
+          {saved ? 'Manage API keys' : 'Get a key'}
+          <ExternalLink className="w-3 h-3" />
+        </a>
       </div>
 
       {saved ? (
