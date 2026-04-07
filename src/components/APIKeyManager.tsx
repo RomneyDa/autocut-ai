@@ -8,71 +8,78 @@ interface APIKeyManagerProps {
   onKeysChanged: (connected: boolean) => void;
 }
 
-type KeyStatus = 'unchecked' | 'checking' | 'valid' | 'invalid' | 'missing';
+type TestStatus = 'idle' | 'testing' | 'passed' | 'failed';
+
+const GEMINI_KEY_REGEX = /^AIza[A-Za-z0-9_-]{31,}$/;
+
+function isValidKeyFormat(key: string) {
+  return GEMINI_KEY_REGEX.test(key);
+}
 
 export default function APIKeyManager({ onKeysChanged }: APIKeyManagerProps) {
   const [apiKey, setApiKey] = useState('');
-  const [status, setStatus] = useState<KeyStatus>('unchecked');
+  const [saved, setSaved] = useState(false);
+  const [testStatus, setTestStatus] = useState<TestStatus>('idle');
+  const [testError, setTestError] = useState('');
   const [showKey, setShowKey] = useState(false);
   const [editing, setEditing] = useState(false);
 
   useEffect(() => {
     const stored = getStoredKey();
-    if (stored) {
+    if (stored && isValidKeyFormat(stored)) {
       setApiKey(stored);
-      validateKey(stored);
+      setSaved(true);
+      onKeysChanged(true);
     } else {
       setEditing(true);
-      setStatus('missing');
     }
   }, []);
 
-  const validateKey = async (key: string) => {
-    setStatus('checking');
+  const handleKeyChange = (value: string) => {
+    setApiKey(value);
+    setTestStatus('idle');
+    setTestError('');
 
-    try {
-      const response = await fetch(
-        `${process.env.NEXT_PUBLIC_BASE_PATH || ''}/api/test-apis`,
-        { headers: { 'x-gemini-api-key': key } }
-      );
-      const data = await response.json();
-
-      const valid = data.gemini.status === 'connected';
-      setStatus(valid ? 'valid' : 'invalid');
-      onKeysChanged(valid);
-
-      if (valid) {
-        setStoredKey(key);
-        setEditing(false);
-      }
-    } catch {
-      setStatus('invalid');
+    if (isValidKeyFormat(value)) {
+      setStoredKey(value);
+      setSaved(true);
+      onKeysChanged(true);
+    } else {
+      setSaved(false);
       onKeysChanged(false);
     }
   };
 
-  const handleSave = () => {
-    if (apiKey) validateKey(apiKey);
-  };
+  const testKey = async () => {
+    setTestStatus('testing');
+    setTestError('');
 
-  const statusIndicator = () => {
-    switch (status) {
-      case 'checking':
-        return <Loader2 className="w-3.5 h-3.5 animate-spin text-gray-400" />;
-      case 'valid':
-        return <CheckCircle className="w-3.5 h-3.5 text-green-500" />;
-      case 'invalid':
-        return <XCircle className="w-3.5 h-3.5 text-red-500" />;
-      default:
-        return null;
+    try {
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_BASE_PATH || ''}/api/test-apis`,
+        { headers: { 'x-gemini-api-key': apiKey } }
+      );
+      const data = await response.json();
+
+      if (data.gemini.status === 'connected') {
+        setTestStatus('passed');
+      } else {
+        setTestStatus('failed');
+        setTestError(data.gemini.error || 'Key rejected by Gemini API');
+      }
+    } catch {
+      setTestStatus('failed');
+      setTestError('Could not reach the server');
     }
   };
 
-  if (!editing && status === 'valid') {
+  const validFormat = isValidKeyFormat(apiKey);
+
+  if (!editing && saved) {
     return (
       <div className="flex items-center justify-center gap-2 text-sm text-green-600">
         <CheckCircle className="w-4 h-4" />
-        <span>Gemini API key connected</span>
+        <span>Gemini API key saved</span>
         <button
           onClick={() => setEditing(true)}
           className="ml-1 p-1 text-gray-400 hover:text-gray-600"
@@ -89,16 +96,16 @@ export default function APIKeyManager({ onKeysChanged }: APIKeyManagerProps) {
       <div>
         <label className="flex items-center gap-1.5 text-xs font-medium text-gray-700 mb-1">
           Google Gemini API Key
-          {statusIndicator()}
+          {saved && <CheckCircle className="w-3.5 h-3.5 text-green-500" />}
+          {apiKey && !validFormat && <XCircle className="w-3.5 h-3.5 text-red-400" />}
         </label>
         <div className="relative">
           <input
             type={showKey ? 'text' : 'password'}
             value={apiKey}
-            onChange={(e) => setApiKey(e.target.value)}
-            placeholder="Gemini API key"
+            onChange={(e) => handleKeyChange(e.target.value)}
+            placeholder="AIza..."
             className="w-full px-3 py-1.5 pr-8 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder:text-gray-400"
-            onKeyDown={(e) => e.key === 'Enter' && apiKey && handleSave()}
           />
           <button
             onClick={() => setShowKey(!showKey)}
@@ -107,15 +114,34 @@ export default function APIKeyManager({ onKeysChanged }: APIKeyManagerProps) {
             {showKey ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
           </button>
         </div>
+        {apiKey && !validFormat && (
+          <p className="text-xs text-red-400 mt-1">Doesn&apos;t look like a Gemini API key</p>
+        )}
       </div>
 
-      <button
-        onClick={handleSave}
-        disabled={!apiKey}
-        className="w-full px-3 py-1.5 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-      >
-        Validate & Save
-      </button>
+      {saved && (
+        <div className="space-y-2">
+          <button
+            onClick={testKey}
+            disabled={testStatus === 'testing'}
+            className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 flex items-center justify-center gap-2"
+          >
+            {testStatus === 'testing' && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+            {testStatus === 'passed' && <CheckCircle className="w-3.5 h-3.5 text-green-500" />}
+            {testStatus === 'failed' && <XCircle className="w-3.5 h-3.5 text-red-500" />}
+            Test Key
+          </button>
+          {testStatus === 'passed' && (
+            <p className="text-xs text-green-600 text-center">Key works — connected to Gemini</p>
+          )}
+          {testStatus === 'failed' && (
+            <p className="text-xs text-red-500 text-center">{testError}</p>
+          )}
+          <p className="text-xs text-gray-400 text-center">
+            Sends a short text message to verify your key works.
+          </p>
+        </div>
+      )}
 
       <p className="text-xs text-gray-500 text-center">
         Key is stored in your browser only — never saved on our server.
