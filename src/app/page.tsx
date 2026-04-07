@@ -1,14 +1,16 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import VideoUploader from '@/components/VideoUploader';
 import ProcessingStatus from '@/components/ProcessingStatus';
 import AnalysisResults from '@/components/AnalysisResults';
 import TestVideoUpload from '@/components/TestVideoUpload';
 import DebugPanel from '@/components/DebugPanel';
 import APIKeyManager from '@/components/APIKeyManager';
+import PromptEditor from '@/components/PromptEditor';
+import AnalysisOptions, { type AnalysisConfig, getStoredConfig } from '@/components/AnalysisOptions';
 import { ProcessingStatus as ProcessingStatusType, AnalysisResult } from '@/lib/types';
-import { getStoredKey } from '@/lib/api-keys';
+import { getStoredGeminiKey, getStoredAssemblyKey } from '@/lib/api-keys';
 import { analyzeVideoClientSide } from '@/lib/client-analyzer';
 import { Sparkles, Settings, Github } from 'lucide-react';
 
@@ -22,11 +24,25 @@ export default function Home() {
   const [debugData, setDebugData] = useState<unknown>(null);
   const [showTestMode, setShowTestMode] = useState(false);
   const [apisConnected, setApisConnected] = useState(false);
+  const [analysisConfig, setAnalysisConfig] = useState<AnalysisConfig>(getStoredConfig);
+  const [videoDuration, setVideoDuration] = useState(0);
 
   const videoPreviewUrl = useMemo(
     () => currentFile ? URL.createObjectURL(currentFile) : null,
     [currentFile]
   );
+
+  // Get video duration when file changes
+  useEffect(() => {
+    if (!videoPreviewUrl) { setVideoDuration(0); return; }
+    const video = document.createElement('video');
+    video.preload = 'metadata';
+    video.onloadedmetadata = () => {
+      setVideoDuration(video.duration);
+      URL.revokeObjectURL(video.src);
+    };
+    video.src = videoPreviewUrl;
+  }, [videoPreviewUrl]);
 
   const handleFileSelected = (file: File) => {
     setCurrentFile(file);
@@ -38,13 +54,16 @@ export default function Home() {
   const handleAnalyze = async () => {
     if (!currentFile) return;
 
-    const apiKey = getStoredKey();
-    if (!apiKey) return;
+    const geminiKey = getStoredGeminiKey();
+    const assemblyKey = getStoredAssemblyKey();
+    if (!geminiKey || !assemblyKey) return;
 
     try {
       const result = await analyzeVideoClientSide(
         currentFile,
-        apiKey,
+        geminiKey,
+        assemblyKey,
+        analysisConfig,
         userPrompt.trim() || undefined,
         (p) => {
           setStatus({
@@ -58,7 +77,7 @@ export default function Home() {
       setDebugData(result);
       setResults({
         frames: [],
-        transcript: result.transcript,
+        transcript: result.transcript?.text || '',
         aiDescription: result.description,
         recommendedCuts: result.cuts,
       });
@@ -82,6 +101,7 @@ export default function Home() {
     setResults(null);
     setUserPrompt('');
     setDebugData(null);
+    setVideoDuration(0);
   };
 
   return (
@@ -116,13 +136,18 @@ export default function Home() {
             AI-powered video editing that removes filler words and unnecessary content
           </p>
           <p className="text-xs text-gray-400 mt-2">
-            All processing happens in your browser. Your video and API key go directly to Gemini — nothing is sent to our server.
+            We don&apos;t store your data or keys.
           </p>
         </div>
 
         {/* API Key Manager */}
         <div className="max-w-2xl mx-auto mb-8">
           <APIKeyManager onKeysChanged={setApisConnected} />
+        </div>
+
+        {/* Prompt Editor */}
+        <div className="mb-6">
+          <PromptEditor disabled={!!status && status.stage !== 'complete' && status.stage !== 'error'} />
         </div>
 
         {/* Test Mode (dev only) */}
@@ -148,15 +173,26 @@ export default function Home() {
                 <div className="flex items-center justify-between mt-2 flex-shrink-0">
                   <div className="text-sm text-gray-600 truncate">
                     {currentFile.name} ({(currentFile.size / (1024 * 1024)).toFixed(1)} MB)
+                    {videoDuration > 0 && <span className="ml-1">• {Math.round(videoDuration)}s</span>}
                   </div>
                   <button
                     onClick={resetFlow}
-                    className="text-xs text-gray-500 hover:text-gray-700 underline ml-4 flex-shrink-0"
+                    className="cursor-pointer text-xs text-gray-500 hover:text-gray-700 underline ml-4 flex-shrink-0"
                   >
                     Change
                   </button>
                 </div>
               </div>
+
+              {/* Analysis Options */}
+              {videoDuration > 0 && (
+                <AnalysisOptions
+                  videoDuration={videoDuration}
+                  videoSizeMB={currentFile.size / (1024 * 1024)}
+                  config={analysisConfig}
+                  onChange={setAnalysisConfig}
+                />
+              )}
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -174,7 +210,7 @@ export default function Home() {
               <button
                 onClick={handleAnalyze}
                 disabled={!apisConnected}
-                className="cursor-pointer w-full py-2 text-sm font-medium bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="cursor-pointer w-full py-2.5 text-sm font-medium bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {apisConnected ? 'AutoCut' : 'Enter API key to analyze'}
               </button>

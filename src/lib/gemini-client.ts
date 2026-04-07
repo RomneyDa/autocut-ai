@@ -2,55 +2,21 @@ import { GenerativeModel, GoogleGenerativeAI } from '@google/generative-ai';
 import { VideoFrame, CutRecommendation } from './types';
 import { getVideoAnalysisPrompt, getVideoOnlyAnalysisPrompt } from './gemini-prompts';
 
-function toBase64(data: Uint8Array | Buffer): string {
-  if (typeof Buffer !== 'undefined' && data instanceof Buffer) {
-    return data.toString('base64');
-  }
-  let binary = '';
-  for (let i = 0; i < data.length; i++) {
-    binary += String.fromCharCode(data[i]);
-  }
-  return btoa(binary);
-}
-
 export class GeminiClient {
   private genAI: GoogleGenerativeAI;
-  private model: GenerativeModel | null = null;
+  private model: GenerativeModel;
 
-  constructor(private apiKey: string) {
+  constructor(apiKey: string, modelId: string = 'gemini-2.5-flash') {
     this.genAI = new GoogleGenerativeAI(apiKey);
-  }
-
-  private async getModel(): Promise<GenerativeModel> {
-    if (this.model) return this.model;
-
-    try {
-      const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models?key=${this.apiKey}`
-      );
-      const data = await res.json();
-      const flashModel = data.models?.find(
-        (m: { name: string; supportedGenerationMethods?: string[] }) =>
-          m.name.includes('flash') &&
-          m.supportedGenerationMethods?.includes('generateContent')
-      );
-      const modelId = flashModel
-        ? flashModel.name.replace('models/', '')
-        : 'gemini-2.5-flash';
-      this.model = this.genAI.getGenerativeModel({ model: modelId });
-    } catch {
-      this.model = this.genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
-    }
-
-    return this.model;
+    this.model = this.genAI.getGenerativeModel({ model: modelId });
   }
 
   async analyzeVideo(
     frames: VideoFrame[],
-    audioData: Uint8Array | Buffer | null,
+    transcript: string,
     userPrompt?: string
-  ): Promise<{ description: string; cuts: CutRecommendation[]; transcript: string }> {
-    const hasAudio = !!audioData;
+  ): Promise<{ description: string; cuts: CutRecommendation[] }> {
+    const hasAudio = !!(transcript && transcript !== '[No audio track found]');
     const systemPrompt = hasAudio
       ? getVideoAnalysisPrompt(userPrompt)
       : getVideoOnlyAnalysisPrompt(userPrompt);
@@ -65,13 +31,12 @@ export class GeminiClient {
     });
 
     if (hasAudio) {
-      content.push('\n\nAudio is provided inline. Transcribe the speech and use it to identify filler words, pauses, and other content to cut.');
-      content.push('\n\nREMINDER: Be conservative with cuts. Only remove content that clearly detracts from the message. Preserve the speaker\'s natural rhythm and authentic communication style.');
+      content.push('\n\nAUDIO TRANSCRIPT WITH WORD-LEVEL TIMESTAMPS:\n' + transcript);
+      content.push('\n\nUse the precise timestamps from the transcript above to determine exact cut boundaries.');
     } else {
       content.push('\n\nNOTE: This video has no audio track. Focus on visual content analysis only.');
     }
 
-    // Prepare images
     const imageParts = frames.map(frame => ({
       inlineData: {
         data: frame.imageUrl.split(',')[1],
@@ -79,20 +44,10 @@ export class GeminiClient {
       }
     }));
 
-    // Prepare audio part if available
-    const audioPart = hasAudio ? [{
-      inlineData: {
-        data: toBase64(audioData!),
-        mimeType: 'audio/wav' as const,
-      }
-    }] : [];
-
     try {
-      const model = await this.getModel();
-      const result = await model.generateContent([
+      const result = await this.model.generateContent([
         content.join('\n'),
         ...imageParts,
-        ...audioPart,
       ]);
 
       const response = result.response;
@@ -109,7 +64,6 @@ export class GeminiClient {
       return {
         description: parsed.description || (hasAudio ? 'No description provided' : 'Video-only content analyzed'),
         cuts: validatedCuts,
-        transcript: parsed.transcript || '',
       };
     } catch (error) {
       console.error('Gemini analysis error:', error);

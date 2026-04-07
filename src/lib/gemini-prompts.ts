@@ -1,76 +1,38 @@
-export const getVideoAnalysisPrompt = (userPrompt?: string) => `You are an AI video editor that analyzes videos to identify unnecessary content that should be cut out while maintaining natural speech flow and professional quality.
+export const DEFAULT_AUDIO_PROMPT = `You are an AI video editor. Analyze this video and identify content to cut out.
 
-CORE EDITING PHILOSOPHY:
-Your goal is to improve the video's pace and clarity while preserving the speaker's authentic voice and natural communication style. Think like a professional human editor who respects the speaker's intended rhythm.
+WHAT TO CUT:
+- Filler words: "um", "uh", "like" (when not meaningful), "you know", "so" (as filler), "actually" (as filler)
+- Unnecessary pauses: silence longer than 0.5 seconds between words/sentences
+- False starts and repeated phrases
+- Dead air at the beginning or end
 
-ANALYSIS TASKS:
-1. Analyze video frames and audio transcript together
-2. Identify content that genuinely detracts from the message
-3. Provide detailed description of video content and context
-4. Recommend precise cuts with conservative, well-reasoned timestamps
+WHAT TO KEEP:
+- Natural brief pauses between sentences (under 0.5s)
+- Intentional emphasis or dramatic pauses
+- "Like" when used as actual comparison, not as filler
 
-CUTTING GUIDELINES - BE SELECTIVE AND THOUGHTFUL:
-
-FILLER WORDS ("um", "uh", "like", "you know", "so", "actually"):
-✅ REMOVE when:
-- Excessive repetition disrupts comprehension
-- Creates awkward or unprofessional moments
-- Clearly interrupts the speaker's flow
-- Appears in clusters (multiple fillers in quick succession)
-
-❌ DON'T REMOVE when:
-- Used as natural connectors between thoughts
-- Part of the speaker's authentic communication style
-- Helps maintain conversational rhythm
-- Gives natural thinking/breathing space
-
-SILENCE & PAUSES:
-✅ REMOVE: Awkward silences >1 seconds, technical pauses, dead air
-❌ PRESERVE: Natural pauses (0.5-2.5s), dramatic pauses, breathing space, emphasis pauses
-
-REPETITIVE CONTENT:
-✅ REMOVE: Obvious mistakes, false starts, identical repeated phrases
-❌ PRESERVE: Intentional repetition for emphasis, natural restatement for clarity
-
-SPEECH BUFFERING - CRITICAL:
-- Always leave 0.05-0.25 seconds of natural space around cuts
-- Don't cut too close to important words or phrases  
-- Preserve word boundaries and natural speech rhythm
-- Ensure cuts don't create unnatural speech artifacts
-
-QUALITY STANDARDS:
-- Be conservative: When in doubt, don't cut
-- Prioritize content flow over aggressive editing
-- Maintain speaker's personality and style
-- Ensure final result sounds naturally spoken, not robotic
-- Each cut should clearly improve the video's quality
+TIMESTAMP PRECISION:
+- Use precise timestamps in seconds (e.g., 1.3, not rounded to whole seconds)
+- Leave ~0.05s buffer around cuts to avoid clipping adjacent words
 
 Return your response as JSON:
 {
-  "description": "Detailed description of video content, speaking style, and context",
-  "transcript": "Full transcript of the speech in the video",
+  "description": "Brief description of the video content",
+  "transcript": "Full word-for-word transcript including filler words",
   "cuts": [
     {
-      "startTime": 12.3,
-      "endTime": 12.8,
-      "reason": "Excessive filler cluster 'um, uh, like' disrupting explanation flow",
-      "confidence": 0.85,
+      "startTime": 1.3,
+      "endTime": 1.8,
+      "reason": "Filler word 'um'",
+      "confidence": 0.9,
       "type": "filler"
     }
   ]
 }
 
-CUT TYPES:
-- "filler": Unnecessary filler words
-- "silence": Excessive pauses or dead air  
-- "repetition": Redundant or repeated content
-- "mistake": False starts or obvious errors
+Cut types: "filler", "silence", "repetition", "other"`;
 
-${userPrompt ? `\nADDITIONAL USER INSTRUCTIONS: ${userPrompt}` : ''}
-
-Remember: Your goal is to enhance, not over-edit. The best edits are invisible and preserve the speaker's natural communication style.`;
-
-export const getVideoOnlyAnalysisPrompt = (userPrompt?: string) => `You are an AI video editor analyzing a video with no audio track. Focus on visual content analysis and scene-based editing recommendations.
+export const DEFAULT_VIDEO_ONLY_PROMPT = `You are an AI video editor analyzing a video with no audio track. Focus on visual content analysis and scene-based editing recommendations.
 
 VISUAL ANALYSIS TASKS:
 1. Analyze the sequence of video frames for visual content
@@ -112,6 +74,41 @@ CUT TYPES for visual content:
 - "poor_quality": Low quality or corrupted frames
 - "transition": Unnecessary visual transitions
 
-${userPrompt ? `\nADDITIONAL USER INSTRUCTIONS: ${userPrompt}` : ''}
-
 Focus on improving visual pacing while maintaining content integrity.`;
+
+const STORAGE_KEY_AUDIO = 'autocut_prompt_audio';
+const STORAGE_KEY_VIDEO = 'autocut_prompt_video';
+const MAX_PROMPT_LENGTH = 1_000_000; // 1 MB
+
+export function getStoredPrompts(): { audio: string; video: string } {
+  if (typeof window === 'undefined') return { audio: DEFAULT_AUDIO_PROMPT, video: DEFAULT_VIDEO_ONLY_PROMPT };
+  return {
+    audio: localStorage.getItem(STORAGE_KEY_AUDIO) || DEFAULT_AUDIO_PROMPT,
+    video: localStorage.getItem(STORAGE_KEY_VIDEO) || DEFAULT_VIDEO_ONLY_PROMPT,
+  };
+}
+
+export function setStoredPrompt(type: 'audio' | 'video', value: string) {
+  const key = type === 'audio' ? STORAGE_KEY_AUDIO : STORAGE_KEY_VIDEO;
+  localStorage.setItem(key, value.slice(0, MAX_PROMPT_LENGTH));
+}
+
+export function resetStoredPrompt(type: 'audio' | 'video') {
+  const key = type === 'audio' ? STORAGE_KEY_AUDIO : STORAGE_KEY_VIDEO;
+  localStorage.removeItem(key);
+}
+
+export function isDefaultPrompt(type: 'audio' | 'video', value: string): boolean {
+  const def = type === 'audio' ? DEFAULT_AUDIO_PROMPT : DEFAULT_VIDEO_ONLY_PROMPT;
+  return value === def;
+}
+
+export const getVideoAnalysisPrompt = (userPrompt?: string) => {
+  const base = getStoredPrompts().audio;
+  return base + (userPrompt ? `\n\nADDITIONAL USER INSTRUCTIONS: ${userPrompt}` : '');
+};
+
+export const getVideoOnlyAnalysisPrompt = (userPrompt?: string) => {
+  const base = getStoredPrompts().video;
+  return base + (userPrompt ? `\n\nADDITIONAL USER INSTRUCTIONS: ${userPrompt}` : '');
+};

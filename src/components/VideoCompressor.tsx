@@ -156,34 +156,19 @@ export default function VideoCompressor({
 
       {/* Compression Settings */}
       {!isCompressing && !compressionStats.compressedSize && (
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Quality
-            </label>
-            <select
-              value={quality}
-              onChange={(e) => setQuality(e.target.value as "low" | "high" | "medium")}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
-            >
-              <option value="high">High (best quality)</option>
-              <option value="medium">Medium (balanced)</option>
-              <option value="low">Low (smallest size)</option>
-            </select>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Max Size (MB)
-            </label>
-            <input
-              type="number"
-              value={maxSizeMB}
-              onChange={(e) => setMaxSizeMB(Number(e.target.value))}
-              min="1"
-              max="100"
-              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
-            />
-          </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Quality
+          </label>
+          <select
+            value={quality}
+            onChange={(e) => setQuality(e.target.value as "low" | "high" | "medium")}
+            className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+          >
+            <option value="high">High — 1080p, 2 Mbps (best quality)</option>
+            <option value="medium">Medium — 1080p, 1 Mbps (balanced)</option>
+            <option value="low">Low — 720p, 500 Kbps (smallest size)</option>
+          </select>
         </div>
       )}
 
@@ -245,11 +230,6 @@ export default function VideoCompressor({
               Video compression runs entirely in your browser using WebAssembly. 
               Your video never leaves your device during this process.
             </p>
-            {shouldCompress && (
-              <p className="mt-1 font-medium">
-                Your video is larger than {maxSizeMB}MB. Compression is recommended for faster upload and processing.
-              </p>
-            )}
           </div>
         </div>
       </div>

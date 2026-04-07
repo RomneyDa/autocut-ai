@@ -34,6 +34,11 @@ export default function AnalysisResults({ results, onPayAndDownload, videoFile }
     return `${minutes}:${secs.padStart(4, '0')}`;
   };
 
+  const formatDuration = (seconds: number) => {
+    if (seconds < 1) return `${(seconds * 1000).toFixed(0)}ms`;
+    return `${seconds.toFixed(1)}s`;
+  };
+
   const getCutTypeColor = (type: CutRecommendation['type']) => {
     switch (type) {
       case 'filler':
@@ -249,7 +254,7 @@ export default function AnalysisResults({ results, onPayAndDownload, videoFile }
                   </div>
                   <div className="text-right">
                     <div className="text-sm font-medium text-gray-900">
-                      -{formatTime(cut.endTime - cut.startTime)}
+                      -{formatDuration(cut.endTime - cut.startTime)}
                     </div>
                     <div className="text-xs text-gray-500">
                       {Math.round(cut.confidence * 100)}% confidence

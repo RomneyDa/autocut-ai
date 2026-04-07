@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { FFmpegProcessor } from '@/lib/ffmpeg-utils';
 import { GeminiClient } from '@/lib/gemini-client';
 
+// Server-side route for future paid tier.
+// Currently the client-side flow (client-analyzer.ts) is the primary path.
+
 export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData();
@@ -16,7 +19,7 @@ export async function POST(request: NextRequest) {
 
     if (!geminiApiKey) {
       return NextResponse.json(
-        { error: 'Missing API key. Please enter your Gemini API key above.' },
+        { error: 'Missing API key.' },
         { status: 400 }
       );
     }
@@ -24,20 +27,17 @@ export async function POST(request: NextRequest) {
     const videoBuffer = Buffer.from(await videoFile.arrayBuffer());
     const geminiClient = new GeminiClient(geminiApiKey);
 
-    // Extract frames and audio in parallel
-    console.log('Extracting frames and audio...');
-    const [frames, audioBuffer] = await Promise.all([
-      FFmpegProcessor.extractFrames(videoBuffer),
-      FFmpegProcessor.extractAudio(videoBuffer)
-    ]);
+    console.log('Extracting frames...');
+    const frames = await FFmpegProcessor.extractFrames(videoBuffer);
+    console.log(`Extracted ${frames.length} frames`);
 
-    console.log(`Extracted ${frames.length} frames, audio: ${audioBuffer ? 'yes' : 'no'}`);
+    // TODO: Add server-side AssemblyAI transcription for paid tier
+    const transcript = '[No audio track found]';
 
-    // Send frames + audio directly to Gemini
     console.log('Analyzing with Gemini...');
     const analysis = await geminiClient.analyzeVideo(
       frames.slice(0, 20),
-      audioBuffer,
+      transcript,
       userPrompt || undefined
     );
 
@@ -47,7 +47,6 @@ export async function POST(request: NextRequest) {
         frames: frames.length,
         description: analysis.description,
         recommendedCuts: analysis.cuts,
-        transcript: analysis.transcript,
       }
     });
 

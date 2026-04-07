@@ -2,8 +2,8 @@ import { FFmpeg } from '@ffmpeg/ffmpeg';
 import { toBlobURL } from '@ffmpeg/util';
 import { GeminiClient } from './gemini-client';
 import { VideoFrame, CutRecommendation } from './types';
-
-const FRAMERATE = 2; // 2 fps for analysis (less tokens than 10)
+import { transcribeAudio, type TranscriptResult } from './client-transcriber';
+import type { AnalysisConfig } from '@/components/AnalysisOptions';
 
 let ffmpegInstance: FFmpeg | null = null;
 
@@ -21,13 +21,23 @@ async function getFFmpeg(): Promise<FFmpeg> {
   return ffmpegInstance;
 }
 
-async function extractFrames(ffmpeg: FFmpeg, inputName: string): Promise<VideoFrame[]> {
+function uint8ArrayToBase64(bytes: Uint8Array): string {
+  let binary = '';
+  for (let i = 0; i < bytes.length; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary);
+}
+
+async function extractFrames(ffmpeg: FFmpeg, inputName: string, fps: number, quality: string): Promise<VideoFrame[]> {
+  const qValue = quality === 'low' ? '10' : quality === 'high' ? '3' : '5';
+  const scale = quality === 'low' ? ',scale=384:-1' : '';
   const framesPattern = 'frame-%04d.png';
 
   await ffmpeg.exec([
     '-i', inputName,
-    '-vf', `fps=${FRAMERATE}`,
-    '-q:v', '5', // lower quality for smaller base64, fine for analysis
+    '-vf', `fps=${fps}${scale}`,
+    '-q:v', qValue,
     framesPattern
   ]);
 
@@ -39,7 +49,7 @@ async function extractFrames(ffmpeg: FFmpeg, inputName: string): Promise<VideoFr
       if (data.length === 0) break;
       const base64 = uint8ArrayToBase64(data);
       frames.push({
-        timestamp: (i - 1) / FRAMERATE,
+        timestamp: (i - 1) / fps,
         imageUrl: `data:image/png;base64,${base64}`,
       });
       await ffmpeg.deleteFile(name);
@@ -66,58 +76,69 @@ async function extractAudio(ffmpeg: FFmpeg, inputName: string): Promise<Uint8Arr
 
     const data = await ffmpeg.readFile(outputName) as Uint8Array;
     await ffmpeg.deleteFile(outputName);
-    return data.length > 44 ? data : null; // WAV header is 44 bytes
+    return data.length > 44 ? data : null;
   } catch {
     return null;
   }
 }
 
-function uint8ArrayToBase64(bytes: Uint8Array): string {
-  let binary = '';
-  for (let i = 0; i < bytes.length; i++) {
-    binary += String.fromCharCode(bytes[i]);
-  }
-  return btoa(binary);
-}
-
 export interface AnalyzeProgress {
-  stage: 'loading' | 'extracting' | 'analyzing' | 'complete' | 'error';
+  stage: 'loading' | 'extracting' | 'transcribing' | 'analyzing' | 'complete' | 'error';
   message: string;
   progress: number;
 }
 
 export async function analyzeVideoClientSide(
   file: File,
-  apiKey: string,
+  geminiKey: string,
+  assemblyKey: string,
+  config: AnalysisConfig,
   userPrompt?: string,
   onProgress?: (p: AnalyzeProgress) => void,
-): Promise<{ description: string; cuts: CutRecommendation[]; transcript: string; frameCount: number }> {
+): Promise<{ description: string; cuts: CutRecommendation[]; transcript: TranscriptResult | null; frameCount: number }> {
   const report = (stage: AnalyzeProgress['stage'], message: string, progress: number) =>
     onProgress?.({ stage, message, progress });
 
+  // Step 1: Load ffmpeg
   report('loading', 'Loading video processor...', 5);
   const ffmpeg = await getFFmpeg();
 
-  report('extracting', 'Extracting frames and audio...', 15);
+  // Step 2: Extract frames and audio
+  report('extracting', 'Extracting frames and audio...', 10);
   const inputName = `input-${Date.now()}.mp4`;
   const fileData = new Uint8Array(await file.arrayBuffer());
   await ffmpeg.writeFile(inputName, fileData);
 
   const [frames, audioData] = await Promise.all([
-    extractFrames(ffmpeg, inputName),
+    extractFrames(ffmpeg, inputName, config.fps, config.quality),
     extractAudio(ffmpeg, inputName),
   ]);
 
   await ffmpeg.deleteFile(inputName);
 
-  report('analyzing', `Analyzing ${frames.length} frames with Gemini...`, 50);
-  const client = new GeminiClient(apiKey);
+  // Step 3: Transcribe audio with AssemblyAI (word-level timestamps)
+  let transcript: TranscriptResult | null = null;
+  let transcriptText = '[No audio track found]';
+
+  if (audioData) {
+    report('transcribing', 'Transcribing audio with AssemblyAI...', 30);
+    transcript = await transcribeAudio(
+      assemblyKey,
+      audioData,
+      (msg) => report('transcribing', msg, 40),
+    );
+    transcriptText = transcript.formatted;
+  }
+
+  // Step 4: Analyze with Gemini (frames + transcript text)
+  report('analyzing', `Analyzing ${frames.length} frames with Gemini...`, 60);
+  const client = new GeminiClient(geminiKey, config.modelId);
   const result = await client.analyzeVideo(
-    frames.slice(0, 30), // cap frames sent to Gemini
-    audioData,
+    frames,
+    transcriptText,
     userPrompt,
   );
 
   report('complete', 'Analysis complete!', 100);
-  return { ...result, frameCount: frames.length };
+  return { ...result, transcript, frameCount: frames.length };
 }

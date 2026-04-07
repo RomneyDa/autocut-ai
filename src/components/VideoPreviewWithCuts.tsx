@@ -255,7 +255,7 @@ export default function VideoPreviewWithCuts({
         <video
           ref={videoRef}
           src={videoUrl}
-          className="w-full h-auto"
+          className="w-full h-auto max-h-[500px] object-contain"
           muted={isMuted}
           onPlay={() => setIsPlaying(true)}
           onPause={() => setIsPlaying(false)}
