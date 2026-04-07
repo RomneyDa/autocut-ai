@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import VideoUploader from '@/components/VideoUploader';
 import ProcessingStatus from '@/components/ProcessingStatus';
 import AnalysisResults from '@/components/AnalysisResults';
@@ -8,7 +8,8 @@ import TestVideoUpload from '@/components/TestVideoUpload';
 import DebugPanel from '@/components/DebugPanel';
 import APIKeyManager from '@/components/APIKeyManager';
 import { ProcessingStatus as ProcessingStatusType, AnalysisResult } from '@/lib/types';
-import { apiHeaders } from '@/lib/api-keys';
+import { getStoredKey } from '@/lib/api-keys';
+import { analyzeVideoClientSide } from '@/lib/client-analyzer';
 import { Sparkles, Settings } from 'lucide-react';
 
 const isDev = process.env.NODE_ENV === 'development';
@@ -22,87 +23,51 @@ export default function Home() {
   const [showTestMode, setShowTestMode] = useState(false);
   const [apisConnected, setApisConnected] = useState(false);
 
-  const handleVideoUpload = async (file: File) => {
-    if (!apisConnected) {
-      setStatus({
-        stage: 'error',
-        progress: 0,
-        message: 'Please enter your Gemini API key first.'
-      });
-      return;
-    }
+  const videoPreviewUrl = useMemo(
+    () => currentFile ? URL.createObjectURL(currentFile) : null,
+    [currentFile]
+  );
 
+  const handleFileSelected = (file: File) => {
     setCurrentFile(file);
+    setStatus(null);
     setResults(null);
     setDebugData(null);
+  };
 
-    const formData = new FormData();
-    formData.append('video', file);
-    if (userPrompt.trim()) {
-      formData.append('prompt', userPrompt);
-    }
+  const handleAnalyze = async () => {
+    if (!currentFile) return;
 
-    setStatus({
-      stage: 'uploading',
-      progress: 0,
-      message: 'Preparing video for analysis...'
-    });
+    const apiKey = getStoredKey();
+    if (!apiKey) return;
 
     try {
-      setStatus({
-        stage: 'extracting',
-        progress: 20,
-        message: 'Extracting frames and audio from video...'
+      const result = await analyzeVideoClientSide(
+        currentFile,
+        apiKey,
+        userPrompt.trim() || undefined,
+        (p) => {
+          setStatus({
+            stage: p.stage === 'loading' ? 'extracting' : p.stage as ProcessingStatusType['stage'],
+            progress: p.progress,
+            message: p.message,
+          });
+        },
+      );
+
+      setDebugData(result);
+      setResults({
+        frames: [],
+        transcript: result.transcript,
+        aiDescription: result.description,
+        recommendedCuts: result.cuts,
       });
-
-      const response = await fetch(`${process.env.NEXT_PUBLIC_BASE_PATH || ''}/api/analyze`, {
-        method: 'POST',
-        headers: apiHeaders(),
-        body: formData
-      });
-
-      const data = await response.json();
-      setDebugData(data);
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Analysis failed');
-      }
-
-      setStatus({
-        stage: 'transcribing',
-        progress: 60,
-        message: 'Transcribing audio...'
-      });
-
-      setStatus({
-        stage: 'analyzing',
-        progress: 80,
-        message: 'Analyzing with AI...'
-      });
-
-      if (data.success) {
-        setStatus({
-          stage: 'complete',
-          progress: 100,
-          message: 'Analysis complete! Review your cuts below.'
-        });
-
-        setResults({
-          frames: [],
-          transcript: data.data.transcript || '',
-          aiDescription: data.data.description,
-          recommendedCuts: data.data.recommendedCuts || []
-        });
-      } else {
-        throw new Error(data.error || 'Analysis failed');
-      }
-
     } catch (error) {
-      console.error('Upload error:', error);
+      console.error('Analysis error:', error);
       setStatus({
         stage: 'error',
         progress: 0,
-        message: `Analysis failed: ${error instanceof Error ? error.message : 'Unknown error'}`
+        message: `Analysis failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
       });
     }
   };
@@ -127,7 +92,7 @@ export default function Home() {
           <div className="flex items-center justify-center mb-2">
             <h1 className="text-4xl font-bold text-gray-900 flex items-center">
               <Sparkles className="w-8 h-8 text-blue-600 mr-2" />
-              AutoCut.AI
+              AutoCut AI
             </h1>
             {isDev && (
               <button
@@ -143,7 +108,7 @@ export default function Home() {
             AI-powered video editing that removes filler words and unnecessary content
           </p>
           <p className="text-xs text-gray-400 mt-2">
-            Your video is analyzed on our server using your API keys, then discarded. Large file compression happens entirely in your browser.
+            All processing happens in your browser. Your video and API key go directly to Gemini — nothing is sent to our server.
           </p>
         </div>
 
@@ -158,25 +123,54 @@ export default function Home() {
         {/* Main Content */}
         <div className="space-y-8">
           {!currentFile && !status && (
-            <>
-              <VideoUploader
-                onVideoUpload={handleVideoUpload}
-                isProcessing={false}
-              />
+            <VideoUploader
+              onVideoUpload={handleFileSelected}
+              isProcessing={false}
+            />
+          )}
 
-              <div className="max-w-2xl mx-auto mt-6">
+          {currentFile && !status && (
+            <div className="w-full max-w-2xl mx-auto space-y-4">
+              <div className="border-2 border-gray-300 rounded-lg p-3 h-64 flex flex-col">
+                <video
+                  src={videoPreviewUrl!}
+                  controls
+                  className="w-full flex-1 min-h-0 rounded-md bg-black object-contain"
+                />
+                <div className="flex items-center justify-between mt-2 flex-shrink-0">
+                  <div className="text-sm text-gray-600 truncate">
+                    {currentFile.name} ({(currentFile.size / (1024 * 1024)).toFixed(1)} MB)
+                  </div>
+                  <button
+                    onClick={resetFlow}
+                    className="text-xs text-gray-500 hover:text-gray-700 underline ml-4 flex-shrink-0"
+                  >
+                    Change
+                  </button>
+                </div>
+              </div>
+
+              <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Additional Instructions (Optional)
                 </label>
                 <textarea
                   value={userPrompt}
                   onChange={(e) => setUserPrompt(e.target.value)}
-                  placeholder="e.g., Please be more aggressive with removing filler words, or keep natural pauses..."
+                  placeholder="e.g., Be more aggressive with removing filler words, or keep natural pauses..."
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  rows={3}
+                  rows={2}
                 />
               </div>
-            </>
+
+              <button
+                onClick={handleAnalyze}
+                disabled={!apisConnected}
+                className="cursor-pointer w-full py-2 text-sm font-medium bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {apisConnected ? 'AutoCut' : 'Enter API key to analyze'}
+              </button>
+            </div>
           )}
 
           {/* Processing Status */}

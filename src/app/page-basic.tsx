@@ -109,7 +109,7 @@ export default function Home() {
         <div className="text-center mb-8">
           <h1 className="text-4xl font-bold text-gray-900 mb-2 flex items-center justify-center">
             <Sparkles className="w-8 h-8 text-blue-600 mr-2" />
-            AutoCut.AI
+            AutoCut AI
           </h1>
           <p className="text-lg text-gray-600">
             AI-powered video editing that removes filler words and unnecessary content

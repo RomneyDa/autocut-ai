@@ -2,21 +2,55 @@ import { GenerativeModel, GoogleGenerativeAI } from '@google/generative-ai';
 import { VideoFrame, CutRecommendation } from './types';
 import { getVideoAnalysisPrompt, getVideoOnlyAnalysisPrompt } from './gemini-prompts';
 
+function toBase64(data: Uint8Array | Buffer): string {
+  if (typeof Buffer !== 'undefined' && data instanceof Buffer) {
+    return data.toString('base64');
+  }
+  let binary = '';
+  for (let i = 0; i < data.length; i++) {
+    binary += String.fromCharCode(data[i]);
+  }
+  return btoa(binary);
+}
+
 export class GeminiClient {
   private genAI: GoogleGenerativeAI;
-  private model: GenerativeModel;
+  private model: GenerativeModel | null = null;
 
-  constructor(apiKey: string) {
+  constructor(private apiKey: string) {
     this.genAI = new GoogleGenerativeAI(apiKey);
-    this.model = this.genAI.getGenerativeModel({ model: 'gemini-2.0-flash-exp' });
+  }
+
+  private async getModel(): Promise<GenerativeModel> {
+    if (this.model) return this.model;
+
+    try {
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models?key=${this.apiKey}`
+      );
+      const data = await res.json();
+      const flashModel = data.models?.find(
+        (m: { name: string; supportedGenerationMethods?: string[] }) =>
+          m.name.includes('flash') &&
+          m.supportedGenerationMethods?.includes('generateContent')
+      );
+      const modelId = flashModel
+        ? flashModel.name.replace('models/', '')
+        : 'gemini-2.5-flash';
+      this.model = this.genAI.getGenerativeModel({ model: modelId });
+    } catch {
+      this.model = this.genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+    }
+
+    return this.model;
   }
 
   async analyzeVideo(
     frames: VideoFrame[],
-    audioBuffer: Buffer | null,
+    audioData: Uint8Array | Buffer | null,
     userPrompt?: string
   ): Promise<{ description: string; cuts: CutRecommendation[]; transcript: string }> {
-    const hasAudio = !!audioBuffer;
+    const hasAudio = !!audioData;
     const systemPrompt = hasAudio
       ? getVideoAnalysisPrompt(userPrompt)
       : getVideoOnlyAnalysisPrompt(userPrompt);
@@ -48,13 +82,14 @@ export class GeminiClient {
     // Prepare audio part if available
     const audioPart = hasAudio ? [{
       inlineData: {
-        data: audioBuffer.toString('base64'),
+        data: toBase64(audioData!),
         mimeType: 'audio/wav' as const,
       }
     }] : [];
 
     try {
-      const result = await this.model.generateContent([
+      const model = await this.getModel();
+      const result = await model.generateContent([
         content.join('\n'),
         ...imageParts,
         ...audioPart,

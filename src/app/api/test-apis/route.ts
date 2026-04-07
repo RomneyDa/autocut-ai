@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { GoogleGenerativeAI } from '@google/generative-ai';
 
 export async function GET(request: NextRequest) {
   const result = { gemini: { status: 'unknown', error: null as string | null } };
@@ -7,10 +6,16 @@ export async function GET(request: NextRequest) {
   try {
     const apiKey = request.headers.get('x-gemini-api-key') || process.env.GEMINI_API_KEY;
     if (apiKey) {
-      const genAI = new GoogleGenerativeAI(apiKey);
-      const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-exp' });
-      await model.generateContent('Reply with "ok"');
-      result.gemini.status = 'connected';
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`
+      );
+      if (res.ok) {
+        result.gemini.status = 'connected';
+      } else {
+        result.gemini.status = 'error';
+        const data = await res.json();
+        result.gemini.error = data.error?.message || 'Invalid API key';
+      }
     } else {
       result.gemini.status = 'no-key';
     }

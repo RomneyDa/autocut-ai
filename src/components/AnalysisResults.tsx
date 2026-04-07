@@ -2,8 +2,7 @@
 
 import { useState } from 'react';
 import { AnalysisResult, CutRecommendation } from '@/lib/types';
-import { Scissors, Clock, Volume2, FileText, Download, DollarSign, Play, Eye, Info } from 'lucide-react';
-import PaymentModal from './PaymentModal';
+import { Scissors, Clock, Volume2, FileText, Download, Play, Eye, Info } from 'lucide-react';
 import VideoPreviewWithCuts from './VideoPreviewWithCuts';
 
 interface AnalysisResultsProps {
@@ -16,7 +15,6 @@ export default function AnalysisResults({ results, onPayAndDownload, videoFile }
   const [selectedCuts, setSelectedCuts] = useState<Set<number>>(
     new Set(results.recommendedCuts.map((_, index) => index))
   );
-  const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
   const [showVideoPreview, setShowVideoPreview] = useState(true);
 
@@ -83,7 +81,7 @@ export default function AnalysisResults({ results, onPayAndDownload, videoFile }
   );
 
   const handlePaymentSuccess = async () => {
-    setShowPaymentModal(false);
+    // setShowPaymentModal(false); // TODO: wire up payment
     setIsDownloading(true);
 
     try {
@@ -280,24 +278,25 @@ export default function AnalysisResults({ results, onPayAndDownload, videoFile }
               )}
             </div>
             <button
-              onClick={() => setShowPaymentModal(true)}
+              onClick={handlePaymentSuccess}
               disabled={isDownloading}
-              className="flex items-center space-x-2 bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-medium transition-colors disabled:opacity-50"
+              className="cursor-pointer flex items-center space-x-2 bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-medium transition-colors disabled:opacity-50"
             >
-              <DollarSign className="w-4 h-4" />
-              <span>{isDownloading ? 'Processing...' : 'Pay $1.00 & Download'}</span>
               <Download className="w-4 h-4" />
+              <span>{isDownloading ? 'Processing...' : 'Download'}</span>
             </button>
           </div>
         </div>
       </div>
 
+      {/* TODO: wire up payment
       <PaymentModal
         isOpen={showPaymentModal}
         onClose={() => setShowPaymentModal(false)}
         onPaymentSuccess={handlePaymentSuccess}
-        amount={100} // $1.00 in cents
+        amount={100}
       />
+      */}
     </>
   );
 }

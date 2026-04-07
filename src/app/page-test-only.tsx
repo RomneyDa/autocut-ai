@@ -117,7 +117,7 @@ export default function Home() {
           <div className="flex items-center justify-center mb-2">
             <h1 className="text-4xl font-bold text-gray-900 flex items-center">
               <Sparkles className="w-8 h-8 text-blue-600 mr-2" />
-              AutoCut.AI
+              AutoCut AI
             </h1>
             <button
               onClick={() => setShowTestMode(!showTestMode)}
