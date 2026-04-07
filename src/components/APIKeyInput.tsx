@@ -97,7 +97,7 @@ export default function APIKeyInput({
           target="_blank"
           className="text-xs text-blue-500 hover:text-blue-700 flex items-center gap-1"
         >
-          {saved ? (getKeyLabel || 'Manage keys') : (getKeyLabel || 'Get a key')}
+          {saved ? (getKeyLabel || 'Manage') : (getKeyLabel || 'Get a key')}
           <ExternalLink className="w-3 h-3" />
         </a>
       </div>

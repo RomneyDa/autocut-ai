@@ -8,6 +8,12 @@ export interface ProjectSettings {
   userInstructions: string;
 }
 
+export interface TranscriptData {
+  text: string;
+  words: { text: string; start: number; end: number; confidence: number }[];
+  formatted: string;
+}
+
 export interface ProjectRecord {
   id?: number;
   name: string;
@@ -15,6 +21,7 @@ export interface ProjectRecord {
   videoDuration: number;
   videoFile: File;
   results: AnalysisResult | null;
+  transcript: TranscriptData | null;
   settings: ProjectSettings | null;
   selectedCuts: number[];
   createdAt: number;
@@ -33,7 +40,7 @@ export interface ProjectSummary {
 }
 
 const DB_NAME = 'autocut_db';
-const DB_VERSION = 2;
+const DB_VERSION = 1;
 const STORE_NAME = 'projects';
 const ACTIVE_KEY = 'autocut_active_project';
 
@@ -41,21 +48,10 @@ function openDB(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, DB_VERSION);
 
-    req.onupgradeneeded = (event) => {
+    req.onupgradeneeded = () => {
       const db = req.result;
-      const oldVersion = event.oldVersion;
-
-      // Delete old stores from v1
-      if (oldVersion < 2) {
-        if (db.objectStoreNames.contains('files')) {
-          db.deleteObjectStore('files');
-        }
-      }
-
-      if (!db.objectStoreNames.contains(STORE_NAME)) {
-        const store = db.createObjectStore(STORE_NAME, { keyPath: 'id', autoIncrement: true });
-        store.createIndex('updatedAt', 'updatedAt');
-      }
+      const store = db.createObjectStore(STORE_NAME, { keyPath: 'id', autoIncrement: true });
+      store.createIndex('updatedAt', 'updatedAt');
     };
 
     req.onsuccess = () => resolve(req.result);

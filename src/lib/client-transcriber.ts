@@ -37,7 +37,8 @@ async function createTranscript(apiKey: string, audioUrl: string): Promise<strin
     },
     body: JSON.stringify({
       audio_url: audioUrl,
-      word_boost: ['um', 'uh', 'like', 'you know', 'so', 'actually'],
+      word_boost: ['um', 'uh', 'like', 'you know', 'so', 'okay', 'actually'],
+      disfluencies: true,
       punctuate: true,
       format_text: true,
     }),
@@ -113,10 +114,10 @@ export async function transcribeAudio(
   onStatus?.('Uploading audio to AssemblyAI...');
   const audioUrl = await uploadAudio(apiKey, audioData);
 
-  onStatus?.('Starting transcription...');
+  onStatus?.('Transcribing with AssemblyAI...');
   const transcriptId = await createTranscript(apiKey, audioUrl);
 
-  onStatus?.('Transcribing (this may take a moment)...');
+  onStatus?.('Transcribing with AssemblyAI...');
   const result = await pollTranscript(apiKey, transcriptId);
 
   return {

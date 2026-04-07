@@ -9,7 +9,8 @@ interface ProjectHistoryProps {
   activeProjectId: number | null;
   onSelect: (id: number) => void;
   onNew: () => void;
-  refreshKey?: number; // increment to trigger refresh
+  refreshKey?: number;
+  disabled?: boolean;
 }
 
 function formatDate(ts: number) {
@@ -37,7 +38,7 @@ function formatSize(bytes: number) {
   return mb >= 1 ? `${mb.toFixed(1)} MB` : `${(bytes / 1024).toFixed(0)} KB`;
 }
 
-export default function ProjectHistory({ activeProjectId, onSelect, onNew, refreshKey }: ProjectHistoryProps) {
+export default function ProjectHistory({ activeProjectId, onSelect, onNew, refreshKey, disabled = false }: ProjectHistoryProps) {
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [open, setOpen] = useState(false);
 
@@ -69,7 +70,7 @@ export default function ProjectHistory({ activeProjectId, onSelect, onNew, refre
       </button>
 
       {open && (
-        <div className="mt-2 space-y-1">
+        <div className={`mt-2 space-y-1 ${disabled ? 'opacity-50 pointer-events-none' : ''}`}>
           {projects.map((p) => (
             <div
               key={p.id}

@@ -88,6 +88,14 @@ export interface AnalyzeProgress {
   progress: number;
 }
 
+export class AnalysisCancelledError extends Error {
+  constructor() { super('Analysis cancelled'); this.name = 'AnalysisCancelledError'; }
+}
+
+function checkAbort(signal?: AbortSignal) {
+  if (signal?.aborted) throw new AnalysisCancelledError();
+}
+
 export async function analyzeVideoClientSide(
   file: File,
   geminiKey: string,
@@ -95,6 +103,7 @@ export async function analyzeVideoClientSide(
   config: AnalysisConfig,
   userPrompt?: string,
   onProgress?: (p: AnalyzeProgress) => void,
+  signal?: AbortSignal,
 ): Promise<{ description: string; cuts: CutRecommendation[]; transcript: TranscriptResult | null; frameCount: number }> {
   const report = (stage: AnalyzeProgress['stage'], message: string, progress: number) =>
     onProgress?.({ stage, message, progress });
@@ -102,6 +111,7 @@ export async function analyzeVideoClientSide(
   // Step 1: Load ffmpeg
   report('loading', 'Loading video processor...', 5);
   const ffmpeg = await getFFmpeg();
+  checkAbort(signal);
 
   // Step 2: Extract frames and audio
   report('extracting', 'Extracting frames and audio...', 10);
@@ -115,6 +125,7 @@ export async function analyzeVideoClientSide(
   ]);
 
   await ffmpeg.deleteFile(inputName);
+  checkAbort(signal);
 
   // Step 3: Transcribe audio with AssemblyAI (word-level timestamps)
   let transcript: TranscriptResult | null = null;
@@ -129,6 +140,7 @@ export async function analyzeVideoClientSide(
     );
     transcriptText = transcript.formatted;
   }
+  checkAbort(signal);
 
   // Step 4: Analyze with Gemini (frames + transcript text)
   report('analyzing', `Analyzing ${frames.length} frames with Gemini...`, 60);
@@ -138,6 +150,7 @@ export async function analyzeVideoClientSide(
     transcriptText,
     userPrompt,
   );
+  checkAbort(signal);
 
   report('complete', 'Analysis complete!', 100);
   return { ...result, transcript, frameCount: frames.length };

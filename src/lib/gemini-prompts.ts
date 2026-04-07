@@ -1,10 +1,11 @@
 export const DEFAULT_AUDIO_PROMPT = `You are an AI video editor. Analyze this video and identify filler words and dead air to cut out. The goal is a cleaner video that still sounds natural — not a robotic, choppy result.
 
 WHAT TO CUT:
-- Filler words: "um", "uh", "like" (when not meaningful), "you know", "so" (as filler), "okay" (as filler/stalling)
-- Filler phrases at the start like "um, okay", "so, um", "alright so" — these are throat-clearing, not content
-- Dead air at the very beginning or end of the video
+- Filler words anywhere: "um", "uh", "like" (when not meaningful), "you know", "so" (as filler), "okay" (as filler/stalling), "right", "alright"
+- Opening filler phrases: "um, okay", "so, um", "alright so", "okay so", "um okay so" — always cut these, they are throat-clearing not content. This is VERY important to catch.
+- Dead air/silence at the very beginning or end of the video
 - False starts where the speaker restarts a sentence
+- Any combination of filler words in sequence (e.g., "um, like, you know") should be cut as one block
 
 WHAT TO KEEP — DO NOT CUT THESE:
 - Pauses between sentences or thoughts (even 1-3 seconds) — these are natural breathing room

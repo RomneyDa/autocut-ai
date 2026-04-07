@@ -4,21 +4,20 @@ import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import VideoUploader from '@/components/VideoUploader';
 import ProcessingStatus from '@/components/ProcessingStatus';
 import AnalysisResults from '@/components/AnalysisResults';
-import TestVideoUpload from '@/components/TestVideoUpload';
-import DebugPanel from '@/components/DebugPanel';
 import APIKeyManager from '@/components/APIKeyManager';
 import PromptEditor from '@/components/PromptEditor';
 import ProjectHistory from '@/components/ProjectHistory';
 import AnalysisOptions, { CostEstimate, type AnalysisConfig, getStoredConfig } from '@/components/AnalysisOptions';
 import { ProcessingStatus as ProcessingStatusType, AnalysisResult } from '@/lib/types';
 import { getStoredGeminiKey, getStoredAssemblyKey } from '@/lib/api-keys';
-import { analyzeVideoClientSide } from '@/lib/client-analyzer';
+import { analyzeVideoClientSide, AnalysisCancelledError } from '@/lib/client-analyzer';
 import {
   saveProject, loadProject, getActiveProjectId, setActiveProjectId, clearActiveProjectId,
-  type ProjectRecord, type ProjectSettings,
+  type ProjectRecord, type ProjectSettings, type TranscriptData,
 } from '@/lib/project-store';
 import { getStoredPrompts } from '@/lib/gemini-prompts';
-import { Sparkles, Settings, Github } from 'lucide-react';
+import { Github, Scissors } from 'lucide-react';
+import Image from 'next/image';
 
 const isDev = process.env.NODE_ENV === 'development';
 
@@ -28,13 +27,14 @@ export default function Home() {
   const [status, setStatus] = useState<ProcessingStatusType | null>(null);
   const [results, setResults] = useState<AnalysisResult | null>(null);
   const [selectedCuts, setSelectedCuts] = useState<Set<number>>(new Set());
-  const [debugData, setDebugData] = useState<unknown>(null);
-  const [showTestMode, setShowTestMode] = useState(false);
+  const [transcriptData, setTranscriptData] = useState<TranscriptData | null>(null);
+  const [geminiResponse, setGeminiResponse] = useState<unknown>(null);
   const [apisConnected, setApisConnected] = useState(false);
   const [analysisConfig, setAnalysisConfig] = useState<AnalysisConfig>(getStoredConfig);
   const [videoDuration, setVideoDuration] = useState(0);
   const [restored, setRestored] = useState(false);
   const [activeProjectId, setActiveId] = useState<number | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
   const [projectRefreshKey, setProjectRefreshKey] = useState(0);
   const saveTimer = useRef<ReturnType<typeof setTimeout>>(null);
 
@@ -68,6 +68,8 @@ export default function Home() {
     setUserPrompt(project.settings?.userInstructions || '');
     setVideoDuration(project.videoDuration);
     setSelectedCuts(new Set(project.selectedCuts));
+    setTranscriptData(project.transcript || null);
+    setGeminiResponse(null);
     setActiveId(project.id!);
     setActiveProjectId(project.id!);
     if (project.settings?.analysisConfig) {
@@ -78,7 +80,6 @@ export default function Home() {
     } else {
       setStatus(null);
     }
-    setDebugData(null);
   };
 
   // Debounced save to IDB
@@ -93,6 +94,7 @@ export default function Home() {
         videoDuration,
         videoFile: currentFile,
         results,
+        transcript: transcriptData,
         settings: getCurrentSettings(),
         selectedCuts: Array.from(selectedCuts),
         createdAt: Date.now(),
@@ -103,8 +105,8 @@ export default function Home() {
         const existing = await loadProject(activeProjectId);
         if (existing) {
           project.createdAt = existing.createdAt;
-          // Keep original settings if we're just toggling cuts
           if (!results && existing.settings) project.settings = existing.settings;
+          if (!transcriptData && existing.transcript) project.transcript = existing.transcript;
         }
       }
 
@@ -112,7 +114,7 @@ export default function Home() {
       setActiveId(id);
       setProjectRefreshKey(k => k + 1);
     }, 500);
-  }, [currentFile, results, userPrompt, videoDuration, selectedCuts, activeProjectId, analysisConfig]);
+  }, [currentFile, results, userPrompt, videoDuration, selectedCuts, activeProjectId, analysisConfig, transcriptData]);
 
   const videoPreviewUrl = useMemo(
     () => currentFile ? URL.createObjectURL(currentFile) : null,
@@ -136,12 +138,15 @@ export default function Home() {
     setCurrentFile(file);
     setStatus(null);
     setResults(null);
-    setDebugData(null);
+    setTranscriptData(null);
+    setGeminiResponse(null);
     setVideoDuration(0);
     setSelectedCuts(new Set());
     setActiveId(null);
     clearActiveProjectId();
   };
+
+  const isAnalyzing = !!status && status.stage !== 'complete' && status.stage !== 'error';
 
   const handleAnalyze = async () => {
     if (!currentFile) return;
@@ -149,6 +154,9 @@ export default function Home() {
     const geminiKey = getStoredGeminiKey();
     const assemblyKey = getStoredAssemblyKey();
     if (!geminiKey || !assemblyKey) return;
+
+    const controller = new AbortController();
+    abortRef.current = controller;
 
     try {
       const result = await analyzeVideoClientSide(
@@ -164,9 +172,17 @@ export default function Home() {
             message: p.message,
           });
         },
+        controller.signal,
       );
 
-      setDebugData(result);
+      const tData: TranscriptData | null = result.transcript ? {
+        text: result.transcript.text,
+        words: result.transcript.words,
+        formatted: result.transcript.formatted,
+      } : null;
+      setTranscriptData(tData);
+      setGeminiResponse(result);
+
       const analysisResult: AnalysisResult = {
         frames: [],
         transcript: result.transcript?.text || '',
@@ -186,6 +202,7 @@ export default function Home() {
         videoDuration,
         videoFile: currentFile,
         results: analysisResult,
+        transcript: tData,
         settings: getCurrentSettings(),
         selectedCuts: Array.from(allCuts),
         createdAt: Date.now(),
@@ -199,13 +216,23 @@ export default function Home() {
       setActiveId(id);
       setProjectRefreshKey(k => k + 1);
     } catch (error) {
+      if (error instanceof AnalysisCancelledError) {
+        setStatus(null);
+        return;
+      }
       console.error('Analysis error:', error);
       setStatus({
         stage: 'error',
         progress: 0,
         message: `Analysis failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
       });
+    } finally {
+      abortRef.current = null;
     }
+  };
+
+  const handleCancel = () => {
+    abortRef.current?.abort();
   };
 
   const handleSelectedCutsChange = (cuts: Set<number>) => {
@@ -222,7 +249,8 @@ export default function Home() {
     setStatus(null);
     setResults(null);
     setUserPrompt('');
-    setDebugData(null);
+    setTranscriptData(null);
+    setGeminiResponse(null);
     setVideoDuration(0);
     setSelectedCuts(new Set());
     setActiveId(null);
@@ -238,62 +266,36 @@ export default function Home() {
     <div className="min-h-screen bg-gray-50 py-8 px-4 flex flex-col">
       <div className="max-w-6xl mx-auto w-full flex-1">
         {/* Header */}
-        <div className="text-center mb-8 relative">
-          <div className="absolute right-0 top-1 flex items-center gap-2">
-            {isDev && (
-              <button
-                onClick={() => setShowTestMode(!showTestMode)}
-                className="text-gray-500 hover:text-gray-700 transition-colors"
-                title="Toggle test mode"
-              >
-                <Settings className="w-5 h-5" />
-              </button>
-            )}
-            <a
-              href="https://github.com/romneyda/autocut-ai"
-              target="_blank"
-              className="text-gray-700 hover:text-gray-900 transition-colors"
-              title="View source on GitHub"
-            >
-              <Github className="w-5 h-5" />
-            </a>
+        <div className="mb-8 relative">
+          <a
+            href="https://github.com/romneyda/autocut-ai"
+            target="_blank"
+            className="absolute right-0 top-2 text-gray-700 hover:text-gray-900 transition-colors"
+            title="View source on GitHub"
+          >
+            <Github className="w-5 h-5" />
+          </a>
+          <div className="flex items-center gap-3 mb-1">
+            <Image src="/autocut/icon.svg" alt="AutoCut AI" width={36} height={36} />
+            <h1 className="text-3xl font-bold text-gray-900">AutoCut AI</h1>
           </div>
-          <div className="flex items-center justify-center mb-2">
-            <h1 className="text-4xl font-bold text-gray-900 flex items-center">
-              <Sparkles className="w-8 h-8 text-blue-600 mr-2" />
-              AutoCut AI
-            </h1>
-          </div>
-          <p className="text-lg text-gray-600">
-            AI-powered video editing that removes filler words and unnecessary content
-          </p>
-          <p className="text-xs text-gray-400 mt-2">
-            Processing and API calls are all local/direct. We don&apos;t store your data or keys.
+          <p className="text-gray-600">
+            Automatically cut out unnecessary filler words, silence, and other content from your video
           </p>
         </div>
 
-        {/* API Key Manager */}
-        <div className="max-w-2xl mx-auto mb-4">
-          <APIKeyManager onKeysChanged={setApisConnected} forceCollapsed={!!status} />
-        </div>
-
-        {/* Project History */}
-        <div className="max-w-2xl mx-auto mb-4">
+        {/* Settings */}
+        <div className="max-w-2xl mx-auto mb-6 space-y-1">
+          <APIKeyManager onKeysChanged={setApisConnected} forceCollapsed={isAnalyzing} />
           <ProjectHistory
             activeProjectId={activeProjectId}
             onSelect={handleSelectProject}
             onNew={resetFlow}
             refreshKey={projectRefreshKey}
+            disabled={isAnalyzing}
           />
-        </div>
-
-        {/* Prompt Editor */}
-        <div className="max-w-2xl mx-auto mb-6">
           <PromptEditor disabled={!!status && status.stage !== 'complete' && status.stage !== 'error'} />
         </div>
-
-        {/* Test Mode (dev only) */}
-        {isDev && showTestMode && <TestVideoUpload />}
 
         {/* Main Content */}
         <div className="space-y-8">
@@ -304,7 +306,8 @@ export default function Home() {
             />
           )}
 
-          {currentFile && !status && (
+          {/* Video preview (visible during pre-analyze AND processing) */}
+          {currentFile && !results && (
             <div className="w-full max-w-2xl mx-auto space-y-4">
               <div className="border-2 border-gray-300 rounded-lg p-3 h-64 flex flex-col">
                 <video
@@ -317,74 +320,69 @@ export default function Home() {
                     {currentFile.name} ({(currentFile.size / (1024 * 1024)).toFixed(1)} MB)
                     {videoDuration > 0 && <span className="ml-1">• {Math.round(videoDuration)}s</span>}
                   </div>
-                  <button
-                    onClick={resetFlow}
-                    className="cursor-pointer text-xs text-gray-500 hover:text-gray-700 underline ml-4 flex-shrink-0"
-                  >
-                    Change
-                  </button>
+                  {!isAnalyzing && (
+                    <button
+                      onClick={resetFlow}
+                      className="cursor-pointer text-xs text-gray-500 hover:text-gray-700 underline ml-4 flex-shrink-0"
+                    >
+                      Change
+                    </button>
+                  )}
                 </div>
               </div>
 
-              {/* Analysis Options */}
-              {videoDuration > 0 && (
-                <AnalysisOptions
-                  videoDuration={videoDuration}
-                  videoSizeMB={currentFile.size / (1024 * 1024)}
-                  config={analysisConfig}
-                  onChange={setAnalysisConfig}
-                />
+              {/* Processing Status */}
+              {isAnalyzing && (
+                <ProcessingStatus status={status!} onCancel={handleCancel} />
               )}
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Additional Instructions (Optional)
-                </label>
-                <textarea
-                  value={userPrompt}
-                  onChange={(e) => setUserPrompt(e.target.value)}
-                  placeholder="e.g., Be more aggressive with removing filler words, or keep natural pauses..."
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  rows={2}
-                />
-              </div>
+              {/* Pre-analyze controls */}
+              {!status && (
+                <>
+                  {videoDuration > 0 && (
+                    <AnalysisOptions
+                      videoDuration={videoDuration}
+                      videoSizeMB={currentFile.size / (1024 * 1024)}
+                      config={analysisConfig}
+                      onChange={setAnalysisConfig}
+                    />
+                  )}
 
-              {videoDuration > 0 && (
-                <CostEstimate videoDuration={videoDuration} config={analysisConfig} />
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Additional Instructions (Optional)
+                    </label>
+                    <textarea
+                      value={userPrompt}
+                      onChange={(e) => setUserPrompt(e.target.value)}
+                      placeholder="e.g., Be more aggressive with removing filler words, or keep natural pauses..."
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      rows={2}
+                    />
+                  </div>
+
+                  {videoDuration > 0 && (
+                    <CostEstimate videoDuration={videoDuration} config={analysisConfig} />
+                  )}
+
+                  <button
+                    onClick={handleAnalyze}
+                    disabled={!apisConnected}
+                    className="cursor-pointer w-full py-2.5 text-sm font-medium bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {apisConnected ? 'AutoCut' : 'Enter API keys to analyze'}
+                  </button>
+                </>
               )}
 
-              <button
-                onClick={handleAnalyze}
-                disabled={!apisConnected}
-                className="cursor-pointer w-full py-2.5 text-sm font-medium bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {apisConnected ? 'AutoCut' : 'Enter API keys to analyze'}
-              </button>
             </div>
           )}
-
-          {/* Processing Status */}
-          {status && status.stage !== 'complete' && (
-            <ProcessingStatus status={status} />
-          )}
-
-          {/* Results */}
-          {!!results && status?.stage === 'complete' ? (
-            <AnalysisResults
-              results={results}
-              selectedCuts={selectedCuts}
-              onSelectedCutsChange={handleSelectedCutsChange}
-              onPayAndDownload={handlePayAndDownload}
-              onReset={resetFlow}
-              videoFile={currentFile || undefined}
-            />
-          ) : null}
 
           {/* Error State */}
           {status?.stage === 'error' && (
             <div className="text-center">
               <button
-                onClick={resetFlow}
+                onClick={() => setStatus(null)}
                 className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg font-medium transition-colors"
               >
                 Try Again
@@ -392,18 +390,33 @@ export default function Home() {
             </div>
           )}
 
-          {/* Debug Panel (dev only) */}
-          {isDev && debugData != null ? (
-            <DebugPanel
-              data={debugData}
-              title="API Response Debug"
-            />
+          {/* Results */}
+          {!!results && status?.stage === 'complete' ? (
+            <>
+              <AnalysisResults
+                results={results}
+                selectedCuts={selectedCuts}
+                onSelectedCutsChange={handleSelectedCutsChange}
+                onPayAndDownload={handlePayAndDownload}
+                videoFile={currentFile || undefined}
+                transcriptFormatted={transcriptData?.formatted}
+                geminiRawResponse={geminiResponse}
+              />
+            </>
           ) : null}
         </div>
       </div>
 
       <footer className="text-center text-xs text-gray-400 py-8">
-        &copy; {new Date().getFullYear()} Dallin Romney
+        We don&apos;t view or store your API keys or data. &copy; {new Date().getFullYear()} Dallin Romney
+        {' · '}
+        <a
+          href="https://buymeacoffee.com/dallin"
+          target="_blank"
+          className="inline-flex items-center gap-1 text-gray-400 hover:text-gray-600 transition-colors"
+        >
+          ☕ Buy me a coffee
+        </a>
       </footer>
     </div>
   );
