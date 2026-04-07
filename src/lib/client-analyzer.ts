@@ -105,16 +105,42 @@ export async function analyzeVideoClientSide(
   onProgress?: (p: AnalyzeProgress) => void,
   signal?: AbortSignal,
 ): Promise<{ description: string; cuts: CutRecommendation[]; transcript: TranscriptResult | null; frameCount: number }> {
-  const report = (stage: AnalyzeProgress['stage'], message: string, progress: number) =>
-    onProgress?.({ stage, message, progress });
+  let maxProgress = 0;
+  const activeIntervals: ReturnType<typeof setInterval>[] = [];
+  const report = (stage: AnalyzeProgress['stage'], message: string, progress: number) => {
+    if (signal?.aborted) return;
+    maxProgress = Math.max(maxProgress, progress);
+    onProgress?.({ stage, message, progress: maxProgress });
+  };
+  const startInterval = (fn: () => void, ms: number) => {
+    const id = setInterval(fn, ms);
+    activeIntervals.push(id);
+    return id;
+  };
+  const clearAllIntervals = () => activeIntervals.forEach(id => clearInterval(id));
+  signal?.addEventListener('abort', clearAllIntervals, { once: true });
+
+  // Progress budget: loading 0-3%, extraction 3-30%, transcription 30-55%, gemini 55-99%
 
   // Step 1: Load ffmpeg
-  report('loading', 'Loading video processor...', 5);
+  report('loading', 'Loading video processor...', 1);
   const ffmpeg = await getFFmpeg();
+  report('loading', 'Video processor ready', 3);
   checkAbort(signal);
 
   // Step 2: Extract frames and audio
-  report('extracting', 'Extracting frames and audio...', 10);
+  // Estimate extraction time based on video size (~1s per MB for WASM ffmpeg)
+  const fileSizeMB = file.size / (1024 * 1024);
+  const estExtractionSec = Math.max(fileSizeMB * 1.5, 5);
+  report('extracting', 'Extracting frames and audio...', 3);
+
+  const extractStart = Date.now();
+  const extractInterval = startInterval(() => {
+    const elapsed = (Date.now() - extractStart) / 1000;
+    const pct = Math.min(29, 3 + (elapsed / estExtractionSec) * 27);
+    report('extracting', 'Extracting frames and audio...', Math.round(pct));
+  }, 500);
+
   const inputName = `input-${Date.now()}.mp4`;
   const fileData = new Uint8Array(await file.arrayBuffer());
   await ffmpeg.writeFile(inputName, fileData);
@@ -124,32 +150,57 @@ export async function analyzeVideoClientSide(
     extractAudio(ffmpeg, inputName),
   ]);
 
+  clearInterval(extractInterval);
   await ffmpeg.deleteFile(inputName);
+  report('extracting', `Extracted ${frames.length} frames`, 30);
   checkAbort(signal);
 
-  // Step 3: Transcribe audio with AssemblyAI (word-level timestamps)
+  // Step 3: Transcribe audio with AssemblyAI
   let transcript: TranscriptResult | null = null;
   let transcriptText = '[No audio track found]';
 
   if (audioData) {
-    report('transcribing', 'Transcribing audio with AssemblyAI...', 30);
+    report('transcribing', 'Uploading audio to AssemblyAI...', 31);
+
+    const transcribeStart = Date.now();
+    const transcribeInterval = startInterval(() => {
+      const elapsed = (Date.now() - transcribeStart) / 1000;
+      // Transcription usually takes 5-15s, estimate accordingly
+      const pct = Math.min(54, 31 + (elapsed / 15) * 24);
+      report('transcribing', 'Transcribing with AssemblyAI...', Math.round(pct));
+    }, 500);
+
     transcript = await transcribeAudio(
       assemblyKey,
       audioData,
-      (msg) => report('transcribing', msg, 40),
+      (msg) => report('transcribing', msg, 45),
+      signal,
     );
+    clearInterval(transcribeInterval);
     transcriptText = transcript.formatted;
+    report('transcribing', 'Transcription complete', 55);
   }
   checkAbort(signal);
 
-  // Step 4: Analyze with Gemini (frames + transcript text)
-  report('analyzing', `Analyzing ${frames.length} frames with Gemini...`, 60);
+  // Step 4: Analyze with Gemini
+  const frameCount = frames.length;
+  report('analyzing', `Analyzing ${frameCount} frames with Gemini...`, 55);
+
+  const analyzeStart = Date.now();
+  const estGeminiSec = Math.max(frameCount * 0.5, 10);
+  const analyzeInterval = startInterval(() => {
+    const elapsed = (Date.now() - analyzeStart) / 1000;
+    const pct = Math.min(90, 55 + (elapsed / estGeminiSec) * 35);
+    report('analyzing', `Analyzing ${frameCount} frames with Gemini...`, Math.round(pct));
+  }, 500);
+
   const client = new GeminiClient(geminiKey, config.modelId);
-  const result = await client.analyzeVideo(
-    frames,
-    transcriptText,
-    userPrompt,
-  );
+  let result;
+  try {
+    result = await client.analyzeVideo(frames, transcriptText, userPrompt);
+  } finally {
+    clearInterval(analyzeInterval);
+  }
   checkAbort(signal);
 
   report('complete', 'Analysis complete!', 100);

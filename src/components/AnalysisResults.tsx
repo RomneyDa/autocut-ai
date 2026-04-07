@@ -14,9 +14,11 @@ interface AnalysisResultsProps {
   videoFile?: File;
   transcriptFormatted?: string;
   geminiRawResponse?: unknown;
+  minSegmentMs?: number;
+  onMinSegmentChange?: (v: number) => void;
 }
 
-export default function AnalysisResults({ results, selectedCuts: selectedCutsProp, onSelectedCutsChange, onPayAndDownload, onReset, videoFile, transcriptFormatted, geminiRawResponse }: AnalysisResultsProps) {
+export default function AnalysisResults({ results, selectedCuts: selectedCutsProp, onSelectedCutsChange, onPayAndDownload, onReset, videoFile, transcriptFormatted, geminiRawResponse, minSegmentMs = 0, onMinSegmentChange }: AnalysisResultsProps) {
   const [internalSelectedCuts, setInternalSelectedCuts] = useState<Set<number>>(
     () => selectedCutsProp ?? new Set(results.recommendedCuts.map((_, i) => i))
   );
@@ -104,27 +106,60 @@ export default function AnalysisResults({ results, selectedCuts: selectedCutsPro
 
   return (
     <div className="w-full max-w-6xl mx-auto">
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-        {/* Description + Video Preview */}
-        {videoFile && (
-          <div className="p-4 space-y-3">
-            {results.aiDescription && (
-              <div className="text-sm">
-                <span className="font-bold text-gray-700">Gemini&apos;s description: </span>
-                <span className="italic text-gray-600">{results.aiDescription}</span>
-              </div>
+      {/* 1. Transcript */}
+      {transcriptFormatted && (
+        <div>
+          <button onClick={() => setShowTranscript(!showTranscript)} className="cursor-pointer flex items-center gap-1 w-full text-left min-w-0">
+            <span className="text-gray-300 shrink-0">{showTranscript ? '▾' : '▸'}</span>
+            <span className="text-xs font-medium text-gray-700 shrink-0">Transcript</span>
+            {!showTranscript && (
+              <span className="text-xs italic text-gray-500 truncate min-w-0">
+                {transcriptFormatted.replace(/\[\d+\.\d+s\s*-\s*\d+\.\d+s\]\s*/g, '').replace(/"/g, '').replace(/\n/g, ' ')}
+              </span>
             )}
-            <VideoPreviewWithCuts
-              file={videoFile}
-              cuts={results.recommendedCuts}
-              selectedCuts={selectedCuts}
-              showProcessed={true}
-            />
-          </div>
-        )}
+          </button>
+          {showTranscript && (
+            <pre className="mt-1 ml-3 p-3 bg-gray-50 rounded-md overflow-auto max-h-64 text-[11px] font-mono text-gray-500 whitespace-pre-wrap">{transcriptFormatted}</pre>
+          )}
+        </div>
+      )}
 
-        {/* Cut summary + rows */}
-        <div className="px-4 py-2">
+      {/* 2. Gemini analysis */}
+      {results.aiDescription && (
+        <div className="mb-4">
+          <button onClick={() => setShowGemini(!showGemini)} className="cursor-pointer flex items-center gap-1 w-full text-left min-w-0">
+            <span className="text-gray-300 shrink-0">{showGemini ? '▾' : '▸'}</span>
+            <span className="text-xs font-medium text-gray-700 shrink-0">Analysis</span>
+            {!showGemini && (
+              <span className="text-xs italic text-gray-500 truncate min-w-0">{results.aiDescription}</span>
+            )}
+          </button>
+          {showGemini && (
+            <div className="mt-1 ml-3 space-y-2">
+              <p className="text-sm italic text-gray-600">{results.aiDescription}</p>
+              {geminiRawResponse != null && (
+                <pre className="p-3 bg-gray-50 rounded-md overflow-auto max-h-64 text-[11px] font-mono text-gray-500">{JSON.stringify(geminiRawResponse, null, 2)}</pre>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 3. Video Preview */}
+      {videoFile && (
+        <VideoPreviewWithCuts
+          file={videoFile}
+          cuts={results.recommendedCuts}
+          selectedCuts={selectedCuts}
+          minSegmentMs={minSegmentMs}
+          onMinSegmentChange={onMinSegmentChange}
+          showProcessed={true}
+        />
+      )}
+
+      {/* 4. Cuts */}
+      <div>
+        <div className="py-1">
           <span className="text-xs text-gray-500">
             {selectedCuts.size} cuts &bull; {formatTime(totalCutDuration)} removed
           </span>
@@ -134,7 +169,7 @@ export default function AnalysisResults({ results, selectedCuts: selectedCutsPro
             <div
               key={index}
               onClick={() => toggleCut(index)}
-              className={`cursor-pointer flex items-center gap-3 px-4 py-2 text-xs transition-colors ${
+              className={`cursor-pointer flex items-center gap-3 px-2 py-1.5 rounded text-xs transition-colors ${
                 selectedCuts.has(index) ? 'bg-blue-50/50' : 'opacity-40'
               } hover:bg-blue-50`}
             >
@@ -156,34 +191,8 @@ export default function AnalysisResults({ results, selectedCuts: selectedCutsPro
           ))}
         </div>
 
-        {/* Raw data */}
-        {(transcriptFormatted || geminiRawResponse != null) && (
-          <div className="px-4 py-2 space-y-1 text-xs border-t border-gray-50">
-            {transcriptFormatted && (
-              <div>
-                <button onClick={() => setShowTranscript(!showTranscript)} className="cursor-pointer flex items-center gap-1 text-gray-400 hover:text-gray-600">
-                  <span>{showTranscript ? '▾' : '▸'}</span> Transcript
-                </button>
-                {showTranscript && (
-                  <pre className="mt-1 p-2 bg-gray-50 rounded overflow-auto max-h-48 text-[11px] font-mono text-gray-500">{transcriptFormatted}</pre>
-                )}
-              </div>
-            )}
-            {geminiRawResponse != null && (
-              <div>
-                <button onClick={() => setShowGemini(!showGemini)} className="cursor-pointer flex items-center gap-1 text-gray-400 hover:text-gray-600">
-                  <span>{showGemini ? '▾' : '▸'}</span> Gemini response
-                </button>
-                {showGemini && (
-                  <pre className="mt-1 p-2 bg-gray-50 rounded overflow-auto max-h-48 text-[11px] font-mono text-gray-500">{JSON.stringify(geminiRawResponse, null, 2)}</pre>
-                )}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Download footer */}
-        <div className="px-4 py-3 border-t border-gray-100 flex items-center justify-end gap-3">
+        {/* 5. Download */}
+        <div className="py-3 flex items-center justify-end gap-3">
           {videoFile && (
             <a
               href={URL.createObjectURL(videoFile)}

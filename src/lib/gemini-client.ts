@@ -32,7 +32,7 @@ export class GeminiClient {
 
     if (hasAudio) {
       content.push('\n\nAUDIO TRANSCRIPT WITH WORD-LEVEL TIMESTAMPS:\n' + transcript);
-      content.push('\n\nUse the precise timestamps from the transcript above to determine exact cut boundaries.');
+      content.push('\n\nEach word above has exact [start - end] timestamps. Use these precise word boundaries for cut startTime and endTime values.');
     } else {
       content.push('\n\nNOTE: This video has no audio track. Focus on visual content analysis only.');
     }
@@ -44,6 +44,16 @@ export class GeminiClient {
       }
     }));
 
+    // Debug: log the full prompt (without image data)
+    const fullTextPrompt = content.join('\n');
+    console.debug('=== GEMINI PROMPT (text only) ===');
+    console.debug(fullTextPrompt.substring(0, 500));
+    console.debug('...');
+    console.debug('=== FIRST 3 TRANSCRIPT LINES ===');
+    const transcriptLines = transcript.split('\n').slice(0, 3);
+    console.debug(transcriptLines.join('\n'));
+    console.debug(`=== Sending ${frames.length} frames + ${fullTextPrompt.length} chars of text ===`);
+
     try {
       const result = await this.model.generateContent([
         content.join('\n'),
@@ -53,13 +63,23 @@ export class GeminiClient {
       const response = result.response;
       const text = response.text();
 
+      console.debug('=== GEMINI RAW RESPONSE ===');
+      console.debug(text.substring(0, 1000));
+
       const jsonMatch = text.match(/\{[\s\S]*\}/);
       if (!jsonMatch) {
         throw new Error('No valid JSON found in response');
       }
 
       const parsed = JSON.parse(jsonMatch[0]);
+      console.debug('=== PARSED CUTS ===');
+      (parsed.cuts || []).forEach((c: { startTime: number; endTime: number; reason: string }) =>
+        console.debug(`  ${c.startTime}-${c.endTime}s: ${c.reason}`)
+      );
+
       const validatedCuts = this.validateAndSanitizeCuts(parsed.cuts || [], hasAudio);
+      console.debug('=== VALIDATED CUTS (after filtering) ===');
+      validatedCuts.forEach(c => console.log(`  ${c.startTime}-${c.endTime}s [${c.type}]: ${c.reason}`));
 
       return {
         description: parsed.description || (hasAudio ? 'No description provided' : 'Video-only content analyzed'),
@@ -87,12 +107,6 @@ export class GeminiClient {
         confidence: Math.min(1, Math.max(0, parseFloat(cut.confidence) || 0.5)),
         type: this.validateCutType(cut.type, hasAudio)
       }))
-      .filter(cut => {
-        const duration = cut.endTime - cut.startTime;
-        if (duration > 10) return false;
-        if (cut.type === 'filler' && duration > 2) return false;
-        return true;
-      })
       .sort((a, b) => a.startTime - b.startTime);
   }
 

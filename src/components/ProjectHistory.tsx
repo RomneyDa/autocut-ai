@@ -39,6 +39,7 @@ export default function ProjectHistory({ activeProjectId, onSelect, onNew, refre
 
   const handleDelete = async (e: React.MouseEvent, id: number) => {
     e.stopPropagation();
+    if (!confirm('Are you sure you want to delete this project?')) return;
     await deleteProject(id);
     if (id === activeProjectId) onNew();
     listProjects().then(setProjects);
@@ -47,14 +48,16 @@ export default function ProjectHistory({ activeProjectId, onSelect, onNew, refre
   return (
     <div className={disabled ? 'opacity-50 pointer-events-none' : ''}>
       {projects.length === 0 ? (
-        <p className="text-xs text-gray-400">No projects yet</p>
+        <button onClick={onNew} className="cursor-pointer text-xs text-blue-600 hover:text-blue-800">
+          + Add your first project
+        </button>
       ) : (
-        <div className="space-y-0.5">
+        <div className="space-y-1">
           {projects.map((p) => (
             <div
               key={p.id}
               onClick={() => onSelect(p.id)}
-              className={`cursor-pointer flex items-center justify-between px-2.5 py-1.5 rounded text-xs transition-colors ${
+              className={`cursor-pointer flex items-center justify-between px-2.5 py-2 rounded text-xs transition-colors ${
                 p.id === activeProjectId
                   ? 'bg-blue-50 text-blue-700'
                   : 'text-gray-600 hover:bg-gray-50'
@@ -81,12 +84,12 @@ export default function ProjectHistory({ activeProjectId, onSelect, onNew, refre
           ))}
         </div>
       )}
-      <button
+      {projects.length > 0 && <button
         onClick={onNew}
         className="cursor-pointer mt-1 text-xs text-blue-600 hover:text-blue-800 px-2.5"
       >
         + New
-      </button>
+      </button>}
     </div>
   );
 }

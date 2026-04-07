@@ -50,17 +50,18 @@ export default function PromptEditor({ disabled = false }: { disabled?: boolean 
         className="cursor-pointer flex items-center gap-1 text-xs text-gray-500 hover:text-gray-700 w-full"
       >
         {expanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
-        <span>{anyCustomized ? 'Customized' : 'Default'}</span>
+        <span>View / Edit</span>
+        {anyCustomized && <span className="text-blue-500 ml-1">(edited)</span>}
       </button>
 
       {expanded && (
         <div className="mt-2 space-y-2">
           <div className="flex items-center gap-1.5">
             <Button variant={activeTab === 'audio' ? 'default' : 'outline'} size="xs" onClick={() => setActiveTab('audio')}>
-              Audio{!audioIsDefault && ' *'}
+              With Audio{!audioIsDefault && ' *'}
             </Button>
             <Button variant={activeTab === 'video' ? 'default' : 'outline'} size="xs" onClick={() => setActiveTab('video')}>
-              Video{!videoIsDefault && ' *'}
+              No Audio{!videoIsDefault && ' *'}
             </Button>
             {!isDefault && (
               <Button variant="ghost" size="xs" onClick={handleReset} title="Reset to default">

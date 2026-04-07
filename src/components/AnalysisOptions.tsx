@@ -9,6 +9,7 @@ export interface AnalysisConfig {
   quality: 'high' | 'medium' | 'low';
   fps: number;
   modelId: string;
+  minSegmentMs: number;
 }
 
 interface AnalysisOptionsProps {
@@ -72,6 +73,7 @@ export const DEFAULT_CONFIG: AnalysisConfig = {
   quality: 'medium',
   fps: 4,
   modelId: 'gemini-2.5-flash',
+  minSegmentMs: 150,
 };
 
 const STORAGE_KEY = 'autocut_analysis_config';
@@ -228,6 +230,28 @@ export default function AnalysisOptions({ videoDuration, videoSizeMB, config, on
       </div>
 
       </>}
+    </div>
+  );
+}
+
+export function MinSegmentControl({ value, onChange, compact = false }: { value: number; onChange: (v: number) => void; compact?: boolean }) {
+  return (
+    <div className={`flex items-center gap-${compact ? '2' : '4'}`}>
+      <label className={`text-xs font-medium text-gray-700 ${compact ? '' : 'w-16'} shrink-0`}>
+        {compact ? 'Min gap' : 'Min gap'}
+      </label>
+      <div className="flex items-center gap-2 flex-1">
+        <input
+          type="range"
+          min="0"
+          max="500"
+          step="10"
+          value={value}
+          onChange={(e) => onChange(Number(e.target.value))}
+          className="flex-1"
+        />
+        <span className="text-xs text-gray-500 w-12 text-right">{value}ms</span>
+      </div>
     </div>
   );
 }

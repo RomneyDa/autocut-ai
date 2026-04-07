@@ -1,63 +1,54 @@
 'use client';
 
-import { useEffect, useState, useRef, useCallback } from 'react';
+import { useEffect, useState, useRef, useMemo } from 'react';
 import { Play, Pause, Volume2, VolumeX, Scissors, Eye, RotateCcw } from 'lucide-react';
 import { CutRecommendation } from '@/lib/types';
+import { buildSegmentMap, actualToVirtual, virtualToActual, getSkipTarget } from '@/lib/cut-engine';
 
 interface VideoPreviewWithCutsProps {
   file: File;
   cuts: CutRecommendation[];
   selectedCuts: Set<number>;
+  minSegmentMs?: number;
+  onMinSegmentChange?: (v: number) => void;
   className?: string;
   showProcessed?: boolean;
 }
 
-export default function VideoPreviewWithCuts({ 
-  file, 
-  cuts, 
-  selectedCuts, 
+export default function VideoPreviewWithCuts({
+  file,
+  cuts,
+  selectedCuts,
+  minSegmentMs = 0,
+  onMinSegmentChange,
   className = '',
-  showProcessed = false 
+  showProcessed = false
 }: VideoPreviewWithCutsProps) {
-  const [videoUrl, setVideoUrl] = useState<string>('');
+  const [videoUrl, setVideoUrl] = useState('');
   const [isPlaying, setIsPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [duration, setDuration] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
   const [previewMode, setPreviewMode] = useState<'original' | 'processed'>('processed');
   const videoRef = useRef<HTMLVideoElement>(null);
-  
-  // For processed mode, track the "virtual" time
-  const [virtualTime, setVirtualTime] = useState(0);
-
-  // Get appropriate buffer time based on cut type
-  const getBufferForCutType = (cutType: string): number => {
-    switch (cutType) {
-      case 'filler':
-        return 0.15; // Short buffer for filler words to maintain speech flow
-      case 'silence':
-        return 0.05; // Minimal buffer for silence cuts
-      case 'repetition':
-        return 0.2;  // Slightly longer buffer for repetition cuts
-      case 'visual_pause':
-        return 0.1;  // Standard buffer for visual cuts
-      case 'poor_quality':
-        return 0.05; // Minimal buffer for quality issues
-      case 'transition':
-        return 0.15; // Buffer for transition cuts
-      default:
-        return 0.1;  // Default buffer
-    }
-  };
 
   useEffect(() => {
     const url = URL.createObjectURL(file);
     setVideoUrl(url);
-
-    return () => {
-      URL.revokeObjectURL(url);
-    };
+    return () => URL.revokeObjectURL(url);
   }, [file]);
+
+  // Deterministic segment map — recomputed when cuts/selection/minGap/duration change
+  const { skipRegions, gapFills, merged, segments, editedDuration } = useMemo(
+    () => buildSegmentMap(cuts, selectedCuts, duration, minSegmentMs),
+    [cuts, selectedCuts, duration, minSegmentMs]
+  );
+
+  // Keep ref for use in timeupdate (avoids stale closures)
+  const mergedRef = useRef(merged);
+  const segmentsRef = useRef(segments);
+  mergedRef.current = merged;
+  segmentsRef.current = segments;
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -65,87 +56,54 @@ export default function VideoPreviewWithCuts({
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
-  // Get selected cuts array, sorted and merged if close together
-  const selectedCutsArray = cuts.filter((_, index) => selectedCuts.has(index));
-  const sortedCuts = [...selectedCutsArray].sort((a, b) => a.startTime - b.startTime);
+  const virtualTime = actualToVirtual(currentTime, segments);
+  const displayTime = previewMode === 'processed' ? virtualTime : currentTime;
+  const displayDuration = previewMode === 'processed' ? editedDuration : duration;
 
-  // Merge cuts that are very close together (< 0.3s gap) for smoother playback
-  const mergedCuts = sortedCuts.reduce<CutRecommendation[]>((acc, cut) => {
-    const last = acc[acc.length - 1];
-    if (last && cut.startTime - last.endTime < 0.3) {
-      acc[acc.length - 1] = { ...last, endTime: cut.endTime };
-    } else {
-      acc.push({ ...cut });
-    }
-    return acc;
+  // Slider always maps to actual timeline so the dot jumps over red/yellow regions
+  const progressPercent = duration > 0 ? (currentTime / duration) * 100 : 0;
+
+  // RAF loop for skip detection — runs every frame for instant skipping
+  const rafRef = useRef(0);
+  const previewModeRef = useRef(previewMode);
+  previewModeRef.current = previewMode;
+
+  useEffect(() => {
+    const tick = () => {
+      const video = videoRef.current;
+      if (video && !video.paused && previewModeRef.current === 'processed') {
+        const skipTo = getSkipTarget(video.currentTime, mergedRef.current);
+        if (skipTo !== null) {
+          video.currentTime = skipTo;
+        }
+      }
+      rafRef.current = requestAnimationFrame(tick);
+    };
+    rafRef.current = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(rafRef.current);
   }, []);
 
-  // Calculate the virtual duration (duration minus cuts and buffers)
-  const cutDuration = selectedCutsArray.reduce((sum, cut) => {
-    const buffer = getBufferForCutType(cut.type);
-    return sum + (cut.endTime - cut.startTime) + buffer;
-  }, 0);
-  const processedDuration = duration - cutDuration;
+  // timeupdate just syncs display state
+  const handleTimeUpdate = () => {
+    const video = videoRef.current;
+    if (!video) return;
+    setCurrentTime(video.currentTime);
+  };
 
-  // Convert virtual time to actual video time (skipping cuts)
-  const virtualToActualTime = useCallback((vTime: number): number => {
-    if (previewMode === 'original' || sortedCuts.length === 0) {
-      return vTime;
-    }
+  const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const video = videoRef.current;
+    if (!video) return;
 
-    let actualTime = vTime;
-    let accumulatedCutTime = 0;
-
-    for (const cut of sortedCuts) {
-      const cutStart = cut.startTime;
-      const cutEnd = cut.endTime;
-      const buffer = getBufferForCutType(cut.type);
-      const cutDuration = (cutEnd - cutStart) + buffer;
-
-      if (vTime + accumulatedCutTime >= cutStart) {
-        actualTime = vTime + accumulatedCutTime + cutDuration;
-        accumulatedCutTime += cutDuration;
-      } else {
-        break;
-      }
-    }
-
-    return Math.min(actualTime, duration);
-  }, [previewMode, sortedCuts, duration]);
-
-  // Convert actual time to virtual time
-  const actualToVirtualTime = useCallback((aTime: number): number => {
-    if (previewMode === 'original' || sortedCuts.length === 0) {
-      return aTime;
-    }
-
-    let virtualTime = aTime;
-    
-    for (const cut of sortedCuts) {
-      const buffer = getBufferForCutType(cut.type);
-      const cutEndWithBuffer = cut.endTime + buffer;
-      
-      if (aTime > cutEndWithBuffer) {
-        virtualTime -= (cut.endTime - cut.startTime) + buffer;
-      } else if (aTime >= cut.startTime) {
-        virtualTime = cut.startTime - sortedCuts
-          .filter(c => c.endTime + getBufferForCutType(c.type) <= cut.startTime)
-          .reduce((sum, c) => sum + (c.endTime - c.startTime) + getBufferForCutType(c.type), 0);
-        break;
-      }
-    }
-
-    return Math.max(0, virtualTime);
-  }, [previewMode, sortedCuts]);
+    const targetActual = (parseFloat(e.target.value) / 100) * duration;
+    video.currentTime = targetActual;
+    // RAF will handle skipping if we land in a cut region
+  };
 
   const togglePlayPause = () => {
-    if (videoRef.current) {
-      if (isPlaying) {
-        videoRef.current.pause();
-      } else {
-        videoRef.current.play();
-      }
-    }
+    const video = videoRef.current;
+    if (!video) return;
+    if (isPlaying) video.pause();
+    else video.play();
   };
 
   const toggleMute = () => {
@@ -155,95 +113,16 @@ export default function VideoPreviewWithCuts({
     }
   };
 
-  // Keep a ref to merged cuts so the interval always sees latest
-  const mergedCutsRef = useRef(mergedCuts);
-  mergedCutsRef.current = mergedCuts;
-
-  // Poll for cut skipping at high frequency
-  useEffect(() => {
-    if (!isPlaying || previewMode !== 'processed') return;
-
-    const interval = setInterval(() => {
-      const video = videoRef.current;
-      if (!video || video.paused) return;
-
-      const t = video.currentTime;
-      for (const cut of mergedCutsRef.current) {
-        if (t >= cut.startTime && t < cut.endTime) {
-          video.currentTime = cut.endTime;
-          return;
-        }
-      }
-    }, 16); // ~60fps polling
-
-    return () => clearInterval(interval);
-  }, [isPlaying, previewMode]);
-
-  const handleTimeUpdate = (e: React.SyntheticEvent<HTMLVideoElement>) => {
-    const video = e.currentTarget;
-    const actualTime = video.currentTime;
-    setCurrentTime(actualTime);
-
-    // Also skip in timeupdate as fallback
-    if (previewMode === 'processed') {
-      for (const cut of mergedCutsRef.current) {
-        if (actualTime >= cut.startTime && actualTime < cut.endTime) {
-          video.currentTime = cut.endTime;
-          return;
-        }
-      }
-      setVirtualTime(actualToVirtualTime(actualTime));
-    } else {
-      setVirtualTime(actualTime);
-    }
-  };
-
-  const handleLoadedMetadata = (e: React.SyntheticEvent<HTMLVideoElement>) => {
-    setDuration(e.currentTarget.duration);
-  };
-
-  const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!videoRef.current) return;
-
-    const seekPercent = parseFloat(e.target.value) / 100;
-    
-    if (previewMode === 'processed') {
-      const targetVirtualTime = seekPercent * processedDuration;
-      const targetActualTime = virtualToActualTime(targetVirtualTime);
-      videoRef.current.currentTime = targetActualTime;
-      setVirtualTime(targetVirtualTime);
-    } else {
-      const targetTime = seekPercent * duration;
-      videoRef.current.currentTime = targetTime;
-      setVirtualTime(targetTime);
-    }
-  };
-
   const resetToStart = () => {
     if (videoRef.current) {
       videoRef.current.currentTime = 0;
-      setVirtualTime(0);
       setCurrentTime(0);
     }
   };
 
-  const getCurrentDuration = () => {
-    return previewMode === 'processed' ? processedDuration : duration;
-  };
-
-  const getCurrentTime = () => {
-    return previewMode === 'processed' ? virtualTime : currentTime;
-  };
-
-  const getProgressPercent = () => {
-    const current = getCurrentTime();
-    const total = getCurrentDuration();
-    return total > 0 ? (current / total) * 100 : 0;
-  };
-
   return (
     <div className={`bg-white rounded-lg border border-gray-200 overflow-hidden ${className}`}>
-      {/* Video Player */}
+      {/* Video */}
       <div className="relative bg-black">
         <video
           ref={videoRef}
@@ -253,156 +132,122 @@ export default function VideoPreviewWithCuts({
           onPlay={() => setIsPlaying(true)}
           onPause={() => setIsPlaying(false)}
           onTimeUpdate={handleTimeUpdate}
-          onLoadedMetadata={handleLoadedMetadata}
+          onLoadedMetadata={(e) => setDuration(e.currentTarget.duration)}
           preload="metadata"
         />
-
-        
-        {/* Play/Pause Overlay */}
-        <div 
+        <div
           className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-20 opacity-0 hover:opacity-100 transition-opacity cursor-pointer"
           onClick={togglePlayPause}
         >
           <div className="bg-white bg-opacity-90 rounded-full p-3">
-            {isPlaying ? (
-              <Pause className="w-6 h-6 text-gray-800" />
-            ) : (
-              <Play className="w-6 h-6 text-gray-800 ml-1" />
-            )}
+            {isPlaying ? <Pause className="w-6 h-6 text-gray-800" /> : <Play className="w-6 h-6 text-gray-800 ml-1" />}
           </div>
         </div>
       </div>
 
-      {/* Timeline with Cut Markers */}
-      <div className="bg-gray-900 px-4 py-3">
-        <div className="space-y-2">
-          {/* Timeline */}
-          <div className="relative">
-            <input
-              type="range"
-              min="0"
-              max="100"
-              value={getProgressPercent()}
-              onChange={handleSeek}
-              className="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer slider"
-            />
-            
-            {/* Cut markers */}
-            <div className="absolute inset-0 pointer-events-none">
-              {cuts.map((cut, index) => {
-                if (!selectedCuts.has(index) || !duration) return null;
-
-                const startPercent = (cut.startTime / duration) * 100;
-                const widthPercent = ((cut.endTime - cut.startTime) / duration) * 100;
-
-                return (
-                  <div
-                    key={index}
-                    className={`absolute top-0 h-2 rounded ${
-                      previewMode === 'processed' ? 'bg-red-500 opacity-50' : 'bg-red-500 opacity-70'
-                    }`}
-                    style={{
-                      left: `${startPercent}%`,
-                      width: `${Math.max(widthPercent, 0.3)}%`
-                    }}
-                  />
-                );
-              })}
-            </div>
+      {/* Timeline */}
+      <div className="bg-gray-900 px-4 py-3 space-y-2">
+        <div className="relative">
+          <input
+            type="range"
+            min="0"
+            max="100"
+            value={progressPercent}
+            onChange={handleSeek}
+            className="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer slider"
+          />
+          {/* Cut markers (red) */}
+          <div className="absolute inset-0 pointer-events-none">
+            {skipRegions.map((r, i) => {
+              if (!duration) return null;
+              return (
+                <div
+                  key={`cut-${i}`}
+                  className="absolute top-0 h-2 rounded bg-red-500 opacity-60"
+                  style={{
+                    left: `${(r.start / duration) * 100}%`,
+                    width: `${Math.max(((r.end - r.start) / duration) * 100, 0.3)}%`,
+                  }}
+                />
+              );
+            })}
+            {/* Gap-fill markers (yellow) */}
+            {gapFills.map((g, i) => {
+              if (!duration) return null;
+              return (
+                <div
+                  key={`gap-${i}`}
+                  className="absolute top-0 h-2 rounded bg-yellow-400 opacity-60"
+                  style={{
+                    left: `${(g.start / duration) * 100}%`,
+                    width: `${Math.max(((g.end - g.start) / duration) * 100, 0.3)}%`,
+                  }}
+                />
+              );
+            })}
           </div>
+        </div>
 
-          {/* Controls */}
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-3">
-              <button
-                onClick={togglePlayPause}
-                className="text-white hover:text-gray-300"
-              >
-                {isPlaying ? (
-                  <Pause className="w-4 h-4" />
-                ) : (
-                  <Play className="w-4 h-4" />
-                )}
-              </button>
-
-              <button
-                onClick={resetToStart}
-                className="text-white hover:text-gray-300"
-                title="Reset to start"
-              >
-                <RotateCcw className="w-4 h-4" />
-              </button>
-
-              <span className="text-xs text-gray-300 font-mono">
-                {formatTime(getCurrentTime())} / {formatTime(getCurrentDuration())}
-              </span>
-            </div>
-
-            <div className="flex items-center space-x-3">
-              <button
-                onClick={toggleMute}
-                className="text-white hover:text-gray-300"
-              >
-                {isMuted ? (
-                  <VolumeX className="w-4 h-4" />
-                ) : (
-                  <Volume2 className="w-4 h-4" />
-                )}
-              </button>
-            </div>
+        {/* Controls */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-3">
+            <button onClick={togglePlayPause} className="text-white hover:text-gray-300">
+              {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+            </button>
+            <button onClick={resetToStart} className="text-white hover:text-gray-300" title="Reset to start">
+              <RotateCcw className="w-4 h-4" />
+            </button>
+            <span className="text-xs text-gray-300 font-mono">
+              {formatTime(displayTime)} / {formatTime(displayDuration)}
+            </span>
           </div>
+          <button onClick={toggleMute} className="text-white hover:text-gray-300">
+            {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+          </button>
         </div>
       </div>
 
-      {/* Mode Toggle */}
+      {/* Mode Toggle + Min Gap */}
       {showProcessed && (
         <div className="bg-gray-50 px-4 py-2 border-t border-gray-200">
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-3 flex-wrap">
             <button
               onClick={() => setPreviewMode('processed')}
               className={`cursor-pointer flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium transition-colors ${
-                previewMode === 'processed'
-                  ? 'bg-green-100 text-green-700'
-                  : 'text-gray-500 hover:text-gray-700'
+                previewMode === 'processed' ? 'bg-green-100 text-green-700' : 'text-gray-500 hover:text-gray-700'
               }`}
-              title="Preview with cuts skipped automatically"
+              title="Preview with cuts skipped"
             >
-              <Scissors className="w-3 h-3" />
-              Edited
+              <Scissors className="w-3 h-3" /> Edited
             </button>
             <button
               onClick={() => setPreviewMode('original')}
               className={`cursor-pointer flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium transition-colors ${
-                previewMode === 'original'
-                  ? 'bg-blue-100 text-blue-700'
-                  : 'text-gray-500 hover:text-gray-700'
+                previewMode === 'original' ? 'bg-blue-100 text-blue-700' : 'text-gray-500 hover:text-gray-700'
               }`}
-              title="Play the full uncut video with cut markers on timeline"
+              title="Full uncut video"
             >
-              <Eye className="w-3 h-3" />
-              Original
+              <Eye className="w-3 h-3" /> Original
             </button>
+            {onMinSegmentChange && (
+              <div className="flex items-center gap-1.5 ml-auto">
+                <label className="text-[10px] text-gray-400 shrink-0">Min gap</label>
+                <input
+                  type="range" min="0" max="500" step="10"
+                  value={minSegmentMs}
+                  onChange={(e) => onMinSegmentChange(Number(e.target.value))}
+                  className="w-20"
+                />
+                <span className="text-[10px] text-gray-400 w-8">{minSegmentMs}ms</span>
+              </div>
+            )}
           </div>
         </div>
       )}
 
       <style jsx>{`
-        .slider::-webkit-slider-thumb {
-          appearance: none;
-          width: 12px;
-          height: 12px;
-          border-radius: 50%;
-          background: #3b82f6;
-          cursor: pointer;
-        }
-        .slider::-moz-range-thumb {
-          width: 12px;
-          height: 12px;
-          border-radius: 50%;
-          background: #3b82f6;
-          cursor: pointer;
-          border: none;
-        }
+        .slider::-webkit-slider-thumb { appearance: none; width: 12px; height: 12px; border-radius: 50%; background: #3b82f6; cursor: pointer; }
+        .slider::-moz-range-thumb { width: 12px; height: 12px; border-radius: 50%; background: #3b82f6; cursor: pointer; border: none; }
       `}</style>
     </div>
   );

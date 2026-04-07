@@ -15,8 +15,8 @@ import {
   saveProject, loadProject, getActiveProjectId, setActiveProjectId, clearActiveProjectId,
   type ProjectRecord, type ProjectSettings, type TranscriptData,
 } from '@/lib/project-store';
-import { getStoredPrompts } from '@/lib/gemini-prompts';
-import { Github, Menu, X } from 'lucide-react';
+import { getStoredPrompts, clearStalePrompts } from '@/lib/gemini-prompts';
+import { Github, Menu, X, Scissors } from 'lucide-react';
 import Image from 'next/image';
 
 export default function Home() {
@@ -36,8 +36,14 @@ export default function Home() {
   const [projectRefreshKey, setProjectRefreshKey] = useState(0);
   const saveTimer = useRef<ReturnType<typeof setTimeout>>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [welcomeDismissed, setWelcomeDismissed] = useState(false);
 
   useEffect(() => {
+    setWelcomeDismissed(localStorage.getItem('autocut_welcome_dismissed') === 'true');
+  }, []);
+
+  useEffect(() => {
+    clearStalePrompts();
     (async () => {
       const id = getActiveProjectId();
       if (id) {
@@ -190,7 +196,7 @@ export default function Home() {
       setActiveId(id);
       setProjectRefreshKey(k => k + 1);
     } catch (error) {
-      if (error instanceof AnalysisCancelledError) { setStatus(null); return; }
+      if (error instanceof AnalysisCancelledError || (error instanceof DOMException && error.name === 'AbortError')) { setStatus(null); return; }
       console.error('Analysis error:', error);
       setStatus({ stage: 'error', progress: 0, message: `Analysis failed: ${error instanceof Error ? error.message : 'Unknown error'}` });
     } finally {
@@ -215,47 +221,44 @@ export default function Home() {
 
   // Sidebar content (shared between mobile overlay and desktop sidebar)
   const sidebarContent = (
-    <div className="space-y-6">
-      {/* Logo */}
-      <div className="flex items-center gap-2.5">
-        <Image src="/autocut/icon.svg" alt="AutoCut AI" width={28} height={28} />
-        <span className="text-lg font-bold text-gray-900">AutoCut AI</span>
+    <div className="flex flex-col h-full">
+      <div className="space-y-6 flex-1">
+        {/* Logo + GitHub */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <Image src="/autocut/icon.svg" alt="AutoCut AI" width={28} height={28} />
+            <span className="text-lg font-bold text-gray-900">AutoCut AI</span>
+          </div>
+          <a href="https://github.com/romneyda/autocut-ai" target="_blank" className="text-gray-400 hover:text-gray-600" title="View source on GitHub">
+            <Github className="w-4 h-4" />
+          </a>
+        </div>
+
+        {/* API Keys */}
+        <div>
+          <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">API Keys</h3>
+          <APIKeyManager onKeysChanged={setApisConnected} forceCollapsed={false} />
+        </div>
+
+        {/* Projects */}
+        <div>
+          <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Projects</h3>
+          <ProjectHistory
+            activeProjectId={activeProjectId}
+            onSelect={handleSelectProject}
+            onNew={() => { resetFlow(); setSidebarOpen(false); }}
+            refreshKey={projectRefreshKey}
+            disabled={isAnalyzing}
+          />
+        </div>
+
+        {/* Prompt */}
+        <div>
+          <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Prompt</h3>
+          <PromptEditor disabled={isAnalyzing} />
+        </div>
       </div>
 
-      {/* API Keys */}
-      <div>
-        <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">API Keys</h3>
-        <APIKeyManager onKeysChanged={setApisConnected} forceCollapsed={false} />
-      </div>
-
-      {/* Projects */}
-      <div>
-        <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Projects</h3>
-        <ProjectHistory
-          activeProjectId={activeProjectId}
-          onSelect={handleSelectProject}
-          onNew={resetFlow}
-          refreshKey={projectRefreshKey}
-          disabled={isAnalyzing}
-        />
-      </div>
-
-      {/* Prompt */}
-      <div>
-        <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Prompt</h3>
-        <PromptEditor disabled={isAnalyzing} />
-      </div>
-
-      {/* Links */}
-      <div className="pt-4 border-t border-gray-100 flex items-center gap-3 text-xs text-gray-400">
-        <a href="https://github.com/romneyda/autocut-ai" target="_blank" className="hover:text-gray-600 flex items-center gap-1">
-          <Github className="w-3.5 h-3.5" /> GitHub
-        </a>
-        <span>·</span>
-        <a href="https://buymeacoffee.com/dallin" target="_blank" className="hover:text-gray-600">
-          ☕ Buy me a coffee
-        </a>
-      </div>
     </div>
   );
 
@@ -296,10 +299,23 @@ export default function Home() {
         </div>
 
         <div className="flex-1 p-4 sm:p-6 lg:p-8 max-w-5xl w-full mx-auto">
-          {/* Desktop header (no logo, just subtitle) */}
-          <p className="hidden lg:block text-sm text-gray-500 mb-6">
-            Automatically cut out unnecessary filler words, silence, and other content from your video
-          </p>
+          {/* Welcome alert */}
+          {!welcomeDismissed && (
+            <div className="mb-6 bg-blue-50 border border-blue-200 rounded-lg px-4 py-3 flex items-start gap-3">
+              <Scissors className="w-4 h-4 text-blue-600 mt-0.5 shrink-0" />
+              <p className="text-sm text-blue-800 flex-1">
+                Automatically cut out unnecessary filler words, silence, and other content from your video.
+                Uses AssemblyAI for transcription and Gemini for analysis — bring your own API keys.
+                We don&apos;t view or store your API keys or data.
+              </p>
+              <button
+                onClick={() => { setWelcomeDismissed(true); localStorage.setItem('autocut_welcome_dismissed', 'true'); }}
+                className="cursor-pointer text-blue-400 hover:text-blue-600 shrink-0"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          )}
 
           {/* Uploader */}
           {!currentFile && !status && restored && (
@@ -309,7 +325,7 @@ export default function Home() {
           {/* Video preview + controls */}
           {currentFile && !results && (
             <div className="space-y-4">
-              <div className="border border-gray-200 rounded-lg p-3 bg-white">
+              <div>
                 <video
                   src={videoPreviewUrl!}
                   controls
@@ -329,7 +345,13 @@ export default function Home() {
                 </div>
               </div>
 
-              {isAnalyzing && <ProcessingStatus status={status!} onCancel={handleCancel} />}
+              {isAnalyzing && (
+                <ProcessingStatus
+                  status={status!}
+                  onCancel={handleCancel}
+                  transcriptPreview={transcriptData ? transcriptData.text : undefined}
+                />
+              )}
 
               {!status && (
                 <div className="space-y-3">
@@ -386,13 +408,20 @@ export default function Home() {
               videoFile={currentFile || undefined}
               transcriptFormatted={transcriptData?.formatted}
               geminiRawResponse={geminiResponse}
+              minSegmentMs={analysisConfig.minSegmentMs}
+              onMinSegmentChange={(v) => {
+                const updated = { ...analysisConfig, minSegmentMs: v };
+                setAnalysisConfig(updated);
+              }}
             />
           ) : null}
         </div>
 
         {/* Footer */}
         <footer className="text-center text-xs text-gray-400 py-4 border-t border-gray-100">
-          We don&apos;t view or store your API keys or data. &copy; {new Date().getFullYear()} Dallin Romney
+          &copy; {new Date().getFullYear()} Dallin Romney
+          {' · '}
+          <a href="https://buymeacoffee.com/dallin" target="_blank" className="hover:text-gray-600">☕ Buy me a coffee</a>
         </footer>
       </main>
     </div>

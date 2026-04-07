@@ -1,24 +1,38 @@
-export const DEFAULT_AUDIO_PROMPT = `You are an AI video editor. Analyze this video and identify filler words and dead air to cut out. The goal is a cleaner video that still sounds natural — not a robotic, choppy result.
+export const DEFAULT_AUDIO_PROMPT = `You are an AI video editor. Analyze this video and aggressively identify filler words, interjections, and dead air to cut out. Err on the side of cutting — the user can uncheck any cut they want to keep.
 
-WHAT TO CUT:
-- Filler words anywhere: "um", "uh", "like" (when not meaningful), "you know", "so" (as filler), "okay" (as filler/stalling), "right", "alright"
-- Opening filler phrases: "um, okay", "so, um", "alright so", "okay so", "um okay so" — always cut these, they are throat-clearing not content. This is VERY important to catch.
-- Dead air/silence at the very beginning or end of the video
+CRITICAL — OPENING FILLERS:
+The words "oh", "um", "uh", "ah" at the start of speech are pure filler. Cut ONLY those specific words, not the words after them. Words like "okay", "so", "alright" can serve as natural openers and should be KEPT.
+
+Examples — cut ONLY the bolded words:
+- "**Oh, um,** okay, so cats..." → cut ends before "okay"
+- "**Um,** alright, so today..." → cut ends before "alright"
+- "**Uh,** okay so..." → cut ends before "okay"
+- "**Oh, um, uh,** so like..." → cut ends before "so"
+
+Do NOT cut "okay", "so", "alright", "right" at the start — they make natural intros.
+
+WHAT TO CUT (be aggressive — when in doubt, cut it):
+- Filler words ANYWHERE: "um", "uh", "like" (not as comparison), "you know", "so" (as filler), "okay" (as filler), "oh", "ah", "well" (as filler), "right", "alright"
+- Sequences of fillers — cut as ONE block spanning from the first filler's start to the last filler's end
+- Dead air/silence at the beginning or end of the video
 - False starts where the speaker restarts a sentence
-- Any combination of filler words in sequence (e.g., "um, like, you know") should be cut as one block
+- Mid-sentence pauses longer than 0.8 seconds
+- Repeated words ("much, much" → keep one)
 
-WHAT TO KEEP — DO NOT CUT THESE:
-- Pauses between sentences or thoughts (even 1-3 seconds) — these are natural breathing room
-- "Like" when used as actual comparison
-- Brief hesitations that are part of natural speech rhythm
-- Any pause that comes before or after a complete thought/sentence
+WHAT TO KEEP:
+- Pauses between sentences (0.3-2s) — natural breathing room
+- "Like" when used as actual comparison ("looks like a cat")
+- Content words, even if delivered hesitantly
 
-IMPORTANT: Only cut pauses that are clearly mid-sentence awkward silences (e.g., searching for a word). Do NOT cut pauses between sentences — those are natural and removing them makes the result sound rushed and unnatural.
+PHILOSOPHY: It is MUCH better to suggest a cut that the user unchecks than to miss a cut entirely. Be thorough. Every filler word should be a cut.
 
 TIMESTAMP PRECISION:
-- Use precise timestamps from the transcript
-- Leave 0.1-0.2s buffer around each cut to avoid clipping adjacent words
-- For filler words, include the silence immediately around the filler in the cut
+- Each word in the transcript has exact [start - end] timestamps in seconds
+- Use these exact word boundaries for your cut startTime and endTime
+- For filler words, set startTime to the filler word's start and endTime to its end
+- For sequences of fillers (e.g., "um, okay, so"), span from the first word's start to the last word's end
+- Add ~0.05s buffer before/after cuts to avoid clipping adjacent words
+- Gaps between words (where end of one word < start of next) are silence — include adjacent silence in filler cuts
 
 Return your response as JSON:
 {
@@ -83,17 +97,39 @@ Focus on improving visual pacing while maintaining content integrity.`;
 
 const STORAGE_KEY_AUDIO = 'autocut_prompt_audio';
 const STORAGE_KEY_VIDEO = 'autocut_prompt_video';
-const MAX_PROMPT_LENGTH = 1_000_000; // 1 MB
+const STORAGE_KEY_VERSION = 'autocut_prompt_version';
+const PROMPT_VERSION = 4; // Bump this when default prompts change
+const MAX_PROMPT_LENGTH = 1_000_000;
 
 export function getStoredPrompts(): { audio: string; video: string } {
   if (typeof window === 'undefined') return { audio: DEFAULT_AUDIO_PROMPT, video: DEFAULT_VIDEO_ONLY_PROMPT };
+  const storedAudio = localStorage.getItem(STORAGE_KEY_AUDIO);
+  const storedVideo = localStorage.getItem(STORAGE_KEY_VIDEO);
   return {
-    audio: localStorage.getItem(STORAGE_KEY_AUDIO) || DEFAULT_AUDIO_PROMPT,
-    video: localStorage.getItem(STORAGE_KEY_VIDEO) || DEFAULT_VIDEO_ONLY_PROMPT,
+    audio: storedAudio || DEFAULT_AUDIO_PROMPT,
+    video: storedVideo || DEFAULT_VIDEO_ONLY_PROMPT,
   };
 }
 
+// Clear stored prompts when the default prompt version changes.
+// User customizations are lost on version bump — acceptable since
+// the defaults are actively being improved.
+export function clearStalePrompts() {
+  if (typeof window === 'undefined') return;
+  const storedVersion = localStorage.getItem(STORAGE_KEY_VERSION);
+  if (storedVersion !== String(PROMPT_VERSION)) {
+    localStorage.removeItem(STORAGE_KEY_AUDIO);
+    localStorage.removeItem(STORAGE_KEY_VIDEO);
+    localStorage.setItem(STORAGE_KEY_VERSION, String(PROMPT_VERSION));
+  }
+}
+
 export function setStoredPrompt(type: 'audio' | 'video', value: string) {
+  // Don't persist if it matches the current default — avoids freezing old defaults
+  if (isDefaultPrompt(type, value)) {
+    resetStoredPrompt(type);
+    return;
+  }
   const key = type === 'audio' ? STORAGE_KEY_AUDIO : STORAGE_KEY_VIDEO;
   localStorage.setItem(key, value.slice(0, MAX_PROMPT_LENGTH));
 }

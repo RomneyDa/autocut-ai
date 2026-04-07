@@ -6,9 +6,10 @@ import { Loader2, CheckCircle, AlertCircle, X } from 'lucide-react';
 interface ProcessingStatusProps {
   status: ProcessingStatusType;
   onCancel?: () => void;
+  transcriptPreview?: string;
 }
 
-export default function ProcessingStatus({ status, onCancel }: ProcessingStatusProps) {
+export default function ProcessingStatus({ status, onCancel, transcriptPreview }: ProcessingStatusProps) {
   const getIcon = () => {
     switch (status.stage) {
       case 'complete':
@@ -29,7 +30,7 @@ export default function ProcessingStatus({ status, onCancel }: ProcessingStatusP
   };
 
   return (
-    <div className="w-full max-w-2xl mx-auto bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+    <div className="w-full max-w-2xl mx-auto p-4">
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
           {getIcon()}
@@ -56,6 +57,12 @@ export default function ProcessingStatus({ status, onCancel }: ProcessingStatusP
         </div>
         <span className="text-xs text-gray-500 w-8 text-right">{Math.round(status.progress)}%</span>
       </div>
+
+      {transcriptPreview && (
+        <p className="mt-3 text-xs italic text-gray-500 truncate">
+          {transcriptPreview}
+        </p>
+      )}
     </div>
   );
 }

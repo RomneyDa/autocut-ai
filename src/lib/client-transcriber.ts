@@ -49,10 +49,13 @@ async function createTranscript(apiKey: string, audioUrl: string): Promise<strin
   return data.id;
 }
 
-async function pollTranscript(apiKey: string, transcriptId: string): Promise<{ text: string; words: TranscriptWord[] }> {
+async function pollTranscript(apiKey: string, transcriptId: string, signal?: AbortSignal): Promise<{ text: string; words: TranscriptWord[] }> {
   while (true) {
+    if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+
     const res = await fetch(`https://api.assemblyai.com/v2/transcript/${transcriptId}`, {
       headers: { authorization: apiKey },
+      signal,
     });
 
     if (!res.ok) throw new Error(`Poll failed: ${res.status}`);
@@ -74,51 +77,35 @@ async function pollTranscript(apiKey: string, transcriptId: string): Promise<{ t
       throw new Error(`Transcription failed: ${data.error}`);
     }
 
-    // Wait 1s before polling again
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    await new Promise((resolve, reject) => {
+      const timer = setTimeout(resolve, 1000);
+      signal?.addEventListener('abort', () => { clearTimeout(timer); reject(new DOMException('Aborted', 'AbortError')); }, { once: true });
+    });
   }
 }
 
 function formatTranscriptForGemini(words: TranscriptWord[]): string {
-  // Group words into ~0.5s chunks with timestamps
-  const lines: string[] = [];
-  let currentLine: string[] = [];
-  let lineStart = 0;
-
-  for (const word of words) {
-    if (currentLine.length === 0) {
-      lineStart = word.start;
-    }
-    currentLine.push(word.text);
-
-    if (word.end - lineStart >= 500 || word.text.endsWith('.') || word.text.endsWith('?') || word.text.endsWith('!')) {
-      const ts = (lineStart / 1000).toFixed(1);
-      lines.push(`[${ts}s] ${currentLine.join(' ')}`);
-      currentLine = [];
-    }
-  }
-
-  if (currentLine.length > 0) {
-    const ts = (lineStart / 1000).toFixed(1);
-    lines.push(`[${ts}s] ${currentLine.join(' ')}`);
-  }
-
-  return lines.join('\n');
+  return words
+    .map(w => `[${(w.start / 1000).toFixed(3)}s - ${(w.end / 1000).toFixed(3)}s] "${w.text}"`)
+    .join('\n');
 }
 
 export async function transcribeAudio(
   apiKey: string,
   audioData: Uint8Array,
   onStatus?: (msg: string) => void,
+  signal?: AbortSignal,
 ): Promise<TranscriptResult> {
   onStatus?.('Uploading audio to AssemblyAI...');
   const audioUrl = await uploadAudio(apiKey, audioData);
+
+  if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
 
   onStatus?.('Transcribing with AssemblyAI...');
   const transcriptId = await createTranscript(apiKey, audioUrl);
 
   onStatus?.('Transcribing with AssemblyAI...');
-  const result = await pollTranscript(apiKey, transcriptId);
+  const result = await pollTranscript(apiKey, transcriptId, signal);
 
   return {
     text: result.text,
