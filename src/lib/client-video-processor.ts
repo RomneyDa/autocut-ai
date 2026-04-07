@@ -76,7 +76,7 @@ export class ClientVideoProcessor {
 
       // Read output file
       const data = await this.ffmpeg.readFile(outputName) as Uint8Array;
-      const compressedBlob = new Blob([data.buffer], { type: 'video/mp4' });
+      const compressedBlob = new Blob([new Uint8Array(data)], { type: 'video/mp4' });
 
       // Check if we need further compression
       const compressedSizeMB = compressedBlob.size / (1024 * 1024);
@@ -154,7 +154,7 @@ export class ClientVideoProcessor {
     const outputName = 'thumb.jpg';
 
     try {
-      await this.ffmpeg.writeFile(inputName, await file.arrayBuffer());
+      await this.ffmpeg.writeFile(inputName, new Uint8Array(await file.arrayBuffer()));
       
       await this.ffmpeg.exec([
         '-i', inputName,
@@ -165,7 +165,7 @@ export class ClientVideoProcessor {
       ]);
 
       const data = await this.ffmpeg.readFile(outputName) as Uint8Array;
-      const blob = new Blob([data.buffer], { type: 'image/jpeg' });
+      const blob = new Blob([new Uint8Array(data)], { type: 'image/jpeg' });
       
       await this.ffmpeg.deleteFile(inputName);
       await this.ffmpeg.deleteFile(outputName);

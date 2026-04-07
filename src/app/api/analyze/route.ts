@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { FFmpegProcessor } from '@/lib/ffmpeg-utils';
 import { GeminiClient } from '@/lib/gemini-client';
 import { AssemblyClient } from '@/lib/assembly-client';
+import { AudioTranscript } from '@/lib/types';
 
 export async function POST(request: NextRequest) {
   try {
@@ -40,7 +41,7 @@ export async function POST(request: NextRequest) {
 
     console.log(`Extracted ${frames.length} frames`);
 
-    let transcript = [];
+    let transcript: AudioTranscript[] = [];
     let transcriptText = '[No audio track found]';
 
     // Only transcribe if audio exists

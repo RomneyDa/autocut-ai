@@ -239,7 +239,7 @@ export default function AnalysisResults({ results, onPayAndDownload, videoFile }
               </p>
               {videoFile && (
                 <p className="text-xs text-gray-500 mt-1">
-                  Preview the final result using "Processed" mode in the video player above
+                  Preview the final result using &quot;Processed&quot; mode in the video player above
                 </p>
               )}
             </div>

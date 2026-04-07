@@ -17,7 +17,7 @@ export class GeminiClient {
     userPrompt?: string
   ): Promise<{ description: string; cuts: CutRecommendation[] }> {
     // Use appropriate prompt based on whether we have audio
-    const hasAudio = transcript && transcript !== '[No audio track found]';
+    const hasAudio = !!(transcript && transcript !== '[No audio track found]');
     const systemPrompt = hasAudio 
       ? getVideoAnalysisPrompt(userPrompt)
       : getVideoOnlyAnalysisPrompt(userPrompt);
@@ -78,6 +78,7 @@ export class GeminiClient {
     }
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private validateAndSanitizeCuts(cuts: any[], hasAudio: boolean): CutRecommendation[] {
     return cuts
       .filter(cut => {

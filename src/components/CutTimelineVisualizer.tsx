@@ -54,7 +54,7 @@ export default function CutTimelineVisualizer({
   };
 
   // Create segments for visualization
-  const segments = [];
+  const segments: { type: string; start: number; end: number; duration: number; cutType?: string; reason?: string }[] = [];
   let lastEnd = 0;
 
   cuts.forEach((cut, index) => {

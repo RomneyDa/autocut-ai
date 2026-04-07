@@ -14,7 +14,7 @@ export default function Home() {
   const [userPrompt, setUserPrompt] = useState('');
   const [status, setStatus] = useState<ProcessingStatusType | null>(null);
   const [results, setResults] = useState<AnalysisResult | null>(null);
-  const [debugData, setDebugData] = useState<any>(null);
+  const [debugData, setDebugData] = useState<unknown>(null);
   const [showTestMode, setShowTestMode] = useState(false);
 
   const handleVideoUpload = async (file: File) => {
@@ -167,7 +167,7 @@ export default function Home() {
           )}
 
           {/* Results */}
-          {results && status?.stage === 'complete' && (
+          {!!results && status?.stage === 'complete' ? (
             <>
               <AnalysisResults
                 results={results}
@@ -185,7 +185,7 @@ export default function Home() {
                 </button>
               </div>
             </>
-          )}
+          ) : null}
 
           {/* Error State */}
           {status?.stage === 'error' && (
@@ -200,12 +200,12 @@ export default function Home() {
           )}
 
           {/* Debug Panel */}
-          {debugData && (
-            <DebugPanel 
-              data={debugData} 
+          {debugData != null ? (
+            <DebugPanel
+              data={debugData}
               title="API Response Debug"
             />
-          )}
+          ) : null}
         </div>
       </div>
     </div>

@@ -163,7 +163,7 @@ export default function VideoCompressor({
             </label>
             <select
               value={quality}
-              onChange={(e) => setQuality(e.target.value as any)}
+              onChange={(e) => setQuality(e.target.value as "low" | "high" | "medium")}
               className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
             >
               <option value="high">High (best quality)</option>

@@ -3,12 +3,27 @@
 import { useState, useEffect } from 'react';
 import { CheckCircle, XCircle, AlertCircle, Loader2 } from 'lucide-react';
 
+interface APIEntry {
+  status: string;
+  error?: string;
+}
+
+interface APIStatusData {
+  gemini: APIEntry;
+  assembly: APIEntry;
+  environment: {
+    hasGeminiKey: boolean;
+    hasAssemblyKey: boolean;
+    nodeEnv: string;
+  };
+}
+
 interface APIStatusProps {
   onStatusChecked?: (allConnected: boolean) => void;
 }
 
 export default function APIStatus({ onStatusChecked }: APIStatusProps) {
-  const [status, setStatus] = useState<any>(null);
+  const [status, setStatus] = useState<APIStatusData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
