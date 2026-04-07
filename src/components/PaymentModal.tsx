@@ -32,7 +32,7 @@ function CheckoutForm({ onPaymentSuccess, onClose, amount }: {
 
   useEffect(() => {
     // Create payment intent
-    fetch('/api/create-payment-intent', {
+    fetch(`${process.env.NEXT_PUBLIC_BASE_PATH || ''}/api/create-payment-intent`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ amount }),

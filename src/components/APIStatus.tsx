@@ -18,7 +18,7 @@ export default function APIStatus({ onStatusChecked }: APIStatusProps) {
   const checkAPIs = async () => {
     setIsLoading(true);
     try {
-      const response = await fetch('/api/test-apis');
+      const response = await fetch(`${process.env.NEXT_PUBLIC_BASE_PATH || ''}/api/test-apis`);
       const data = await response.json();
       setStatus(data);
       

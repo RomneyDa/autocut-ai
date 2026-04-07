@@ -60,7 +60,7 @@ export default function TestVideoUpload() {
         formData.append('prompt', 'This is a test video with some filler words like um and uh.');
 
         try {
-          const response = await fetch('/api/analyze', {
+          const response = await fetch(`${process.env.NEXT_PUBLIC_BASE_PATH || ''}/api/analyze`, {
             method: 'POST',
             body: formData
           });

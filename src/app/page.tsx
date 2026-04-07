@@ -48,7 +48,7 @@ export default function Home() {
       });
 
       // Make API request
-      const response = await fetch('/api/analyze', {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_BASE_PATH || ''}/api/analyze`, {
         method: 'POST',
         body: formData
       });

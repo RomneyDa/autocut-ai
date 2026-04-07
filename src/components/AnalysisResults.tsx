@@ -97,7 +97,7 @@ export default function AnalysisResults({ results, onPayAndDownload, videoFile }
       formData.append('cuts', JSON.stringify(selectedCutsArray));
 
       // Process the video
-      const response = await fetch('/api/process-video', {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_BASE_PATH || ''}/api/process-video`, {
         method: 'POST',
         body: formData,
       });
