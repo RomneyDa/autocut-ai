@@ -154,7 +154,7 @@ export default function APIKeyManager({ onKeysChanged }: APIKeyManagerProps) {
       </button>
 
       <p className="text-xs text-gray-500 text-center">
-        Keys are stored in your browser and passed through to the APIs.
+        Keys are stored in your browser only — never saved on our server.
       </p>
     </div>
   );

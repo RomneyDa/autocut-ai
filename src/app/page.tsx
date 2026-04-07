@@ -148,9 +148,9 @@ export default function Home() {
 
         {/* Main Content */}
         <div className="space-y-8">
-          {!currentFile && !status && apisConnected && (
-            <>
-              <div className="max-w-2xl mx-auto">
+          {!currentFile && !status && (
+            <div className={!apisConnected ? 'opacity-50 pointer-events-none' : ''}>
+              <div className="max-w-2xl mx-auto mb-8">
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Additional Instructions (Optional)
                 </label>
@@ -160,14 +160,15 @@ export default function Home() {
                   placeholder="e.g., Please be more aggressive with removing filler words, or keep natural pauses..."
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   rows={3}
+                  disabled={!apisConnected}
                 />
               </div>
 
               <VideoUploader
                 onVideoUpload={handleVideoUpload}
-                isProcessing={false}
+                isProcessing={!apisConnected}
               />
-            </>
+            </div>
           )}
 
           {/* Processing Status */}
