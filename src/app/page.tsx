@@ -274,9 +274,11 @@ export default function Home() {
         <div className="fixed inset-0 z-50 lg:hidden">
           <div className="absolute inset-0 bg-black/30" onClick={() => setSidebarOpen(false)} />
           <aside className="absolute left-0 top-0 h-full w-72 bg-white p-5 overflow-y-auto shadow-xl">
-            <button onClick={() => setSidebarOpen(false)} className="absolute top-4 right-4 text-gray-400 hover:text-gray-600">
-              <X className="w-5 h-5" />
-            </button>
+            <div className="flex justify-end mb-3">
+              <button onClick={() => setSidebarOpen(false)} className="text-gray-400 hover:text-gray-600">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
             {sidebarContent}
           </aside>
         </div>
@@ -314,6 +316,14 @@ export default function Home() {
               >
                 <X className="w-4 h-4" />
               </button>
+            </div>
+          )}
+
+          {/* Mobile inline API keys (shown below lg when keys not connected) */}
+          {!apisConnected && (
+            <div className="lg:hidden mb-6">
+              <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">API Keys</h3>
+              <APIKeyManager onKeysChanged={setApisConnected} forceCollapsed={false} />
             </div>
           )}
 
