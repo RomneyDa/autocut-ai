@@ -150,7 +150,12 @@ export default function Home() {
         <div className="space-y-8">
           {!currentFile && !status && (
             <div className={!apisConnected ? 'opacity-50 pointer-events-none' : ''}>
-              <div className="max-w-2xl mx-auto mb-8">
+              <VideoUploader
+                onVideoUpload={handleVideoUpload}
+                isProcessing={!apisConnected}
+              />
+
+              <div className="max-w-2xl mx-auto mt-6">
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Additional Instructions (Optional)
                 </label>
@@ -163,11 +168,6 @@ export default function Home() {
                   disabled={!apisConnected}
                 />
               </div>
-
-              <VideoUploader
-                onVideoUpload={handleVideoUpload}
-                isProcessing={!apisConnected}
-              />
             </div>
           )}
 
