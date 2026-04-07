@@ -3,21 +3,9 @@ export interface VideoFrame {
   imageUrl: string;
 }
 
-export interface AudioTranscript {
-  timestamp: number;
-  text: string;
-  confidence: number;
-}
-
-export interface Word {
-  start: number
-  text: string
-  confidence: number
-}
-
 export interface AnalysisResult {
   frames: VideoFrame[];
-  transcript: AudioTranscript[];
+  transcript: string;
   aiDescription: string;
   recommendedCuts: CutRecommendation[];
 }

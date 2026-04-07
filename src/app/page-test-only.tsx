@@ -79,7 +79,7 @@ export default function Home() {
         // Convert API response to AnalysisResult format
         setResults({
           frames: [], // We don't need to store all frames in UI
-          transcript: data.data.fullTranscript || [],
+          transcript: data.data.transcript || '',
           aiDescription: data.data.description,
           recommendedCuts: data.data.recommendedCuts || []
         });

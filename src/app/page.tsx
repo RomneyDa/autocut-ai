@@ -80,7 +80,7 @@ export default function Home() {
 
         setResults({
           frames: [],
-          transcript: data.data.fullTranscript || [],
+          transcript: data.data.transcript || '',
           aiDescription: data.data.description,
           recommendedCuts: data.data.recommendedCuts || []
         });

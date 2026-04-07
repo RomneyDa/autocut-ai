@@ -48,6 +48,7 @@ QUALITY STANDARDS:
 Return your response as JSON:
 {
   "description": "Detailed description of video content, speaking style, and context",
+  "transcript": "Full transcript of the speech in the video",
   "cuts": [
     {
       "startTime": 12.3,
