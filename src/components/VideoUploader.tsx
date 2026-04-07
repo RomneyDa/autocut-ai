@@ -145,16 +145,9 @@ export default function VideoUploader({ onVideoUpload, isProcessing }: VideoUplo
         </div>
       )}
 
-      {/* Tips */}
-      <div className="mt-6 bg-blue-50 border border-blue-200 rounded-lg p-4">
-        <h4 className="text-sm font-medium text-blue-800 mb-2">💡 Tips for better results</h4>
-        <ul className="text-xs text-blue-700 space-y-1">
-          <li>• Videos with clear speech work best for filler word detection</li>
-          <li>• Shorter videos (under 10 minutes) process faster</li>
-          <li>• MP4 format is recommended for best compatibility</li>
-          <li>• Client-side compression keeps your video private during optimization</li>
-        </ul>
-      </div>
+      <p className="mt-4 text-xs text-gray-400 text-center">
+        Best with MP4 under 10 minutes with clear audio.
+      </p>
     </div>
   );
 }

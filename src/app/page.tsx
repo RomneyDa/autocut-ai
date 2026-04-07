@@ -133,6 +133,9 @@ export default function Home() {
           <p className="text-lg text-gray-600">
             AI-powered video editing that removes filler words and unnecessary content
           </p>
+          <p className="text-xs text-gray-400 mt-2">
+            Your video is analyzed on our server using your API keys, then discarded. Large file compression happens entirely in your browser.
+          </p>
         </div>
 
         {/* API Key Manager */}
